@@ -1,0 +1,18 @@
+{
+  "name": "Tempo — Workout & Nutrition",
+  "short_name": "Tempo",
+  "description": "Generate a workout plan from your goal, schedule, and equipment, auto-progress your lifts, and track calories and macros — offline and on-device.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0b0d10",
+  "theme_color": "#0b0d10",
+  "categories": ["health", "fitness", "lifestyle"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

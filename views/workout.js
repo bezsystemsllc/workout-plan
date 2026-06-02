@@ -1,0 +1,311 @@
+import { getActivePlan, alternativesFor, prescribeExercise, DAY_LABEL, DEFAULT_PREFS } from "../lib/plan.js";
+import { exercisesFor } from "../data/exercises.js";
+import { iconFor, demoLink } from "../data/exercise-icons.js";
+import { progressionFor } from "../lib/progression.js";
+import { confirmAction, toast } from "../lib/modal.js";
+import { dateNavHtml, wireDateNav } from "../lib/date-nav.js";
+import { load, update, todayISO } from "../storage.js";
+import { mountTimer } from "./timer.js";
+
+export function renderWorkout(root) {
+  let viewedDate = todayISO();
+
+  function render() {
+    const plan = getActivePlan();
+    const allWorkouts = load("workouts");
+    const dow = weekday(viewedDate);
+    const split = plan.splits[dow];
+    const existing = allWorkouts[viewedDate];
+
+    // What to show:
+    //   1. A logged session for this date → show it (its own day type)
+    //   2. Else a lift day → show that day's prescribed workout
+    //   3. Else a picker to log a lift on a rest/cardio day
+    const day = existing?.day || (split.type === "lift" ? split.day : null);
+
+    if (day) {
+      renderSessionView(root, viewedDate, day, allWorkouts, render, split, plan);
+    } else {
+      renderPickerView(root, viewedDate, split, render, plan);
+    }
+
+    wireDateNav(root, viewedDate, (next) => {
+      viewedDate = next;
+      render();
+    });
+  }
+
+  render();
+}
+
+function renderPickerView(root, dateKey, split, rerender, plan) {
+  const dayKeys = Object.keys(plan.workouts);
+  root.innerHTML = `
+    ${dateNavHtml(dateKey)}
+    <section class="card">
+      <h2>${split.label}</h2>
+      <p class="muted">${split.type === "rest" ? "Rest day — recovery." : (split.detail || "Conditioning day.")} Want to log a lift anyway?</p>
+      <div class="grid-2" style="margin-top:8px">
+        ${dayKeys.map(k => `<button data-pick="${k}">${DAY_LABEL[k] || capitalize(k)}</button>`).join("")}
+      </div>
+    </section>
+  `;
+  for (const b of root.querySelectorAll("button[data-pick]")) {
+    b.addEventListener("click", () => {
+      const pick = b.dataset.pick;
+      update("workouts", (all) => ({
+        ...all,
+        [dateKey]: { day: pick, exercises: blankSession(plan.workouts[pick]) },
+      }));
+      rerender();
+    });
+  }
+}
+
+function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, plan) {
+  const template = plan.workouts[day] || [];
+  const existing = allWorkouts[dateKey];
+  const isLogged = !!existing;
+  const isToday = dateKey === todayISO();
+  const canCustomize = !plan.meta?.fallback && !!plan.workouts[day];
+  const equipment = plan.meta?.equipment || DEFAULT_PREFS.equipment;
+  const goal = plan.meta?.goal || load("settings").profile?.goal || "fat_loss";
+  const lastSession = findLastSession(allWorkouts, day, dateKey);
+
+  const metaByName = Object.fromEntries(template.map(m => [m.name, m]));
+  const session = isLogged
+    ? existing
+    : { day, exercises: blankSession(template) };
+
+  const items = session.exercises.map((logged, ei) => {
+    const meta = metaByName[logged.name] || {
+      name: logged.name, category: logged.category, reps: "—",
+      rest: 90, sets: logged.sets.length, prog: "weight", inc: 5,
+    };
+    return { meta, logged, ei };
+  });
+
+  function setSession(next) {
+    update("workouts", (all) => ({ ...all, [dateKey]: next }));
+  }
+  function setTemplate(nextList) {
+    update("settings", (s) => ({
+      ...s,
+      plan: { ...s.plan, workouts: { ...s.plan.workouts, [day]: nextList } },
+    }));
+  }
+
+  const pool = exercisesFor(equipment);
+
+  root.innerHTML = `
+    ${dateNavHtml(dateKey)}
+    <section class="card">
+      <div class="spread"><h2 style="margin:0">${DAY_LABEL[day] || capitalize(day)}</h2><span class="muted">${dateKey}</span></div>
+      ${lastSession ? `<div class="hint">Last ${day} session: ${lastSession.date}</div>` : `<div class="hint">No prior ${day} session — set your starting weights.</div>`}
+      ${!isToday && split.type !== "lift" ? `<div class="hint" style="margin-top:6px">${split.label} on this date — logging a lift anyway.</div>` : ""}
+    </section>
+
+    ${items.map(it => renderExercise(it.meta, it.logged, lastSession?.exercises?.find(e => e.name === it.meta.name), it.ei, day, allWorkouts, canCustomize, equipment)).join("")}
+
+    ${canCustomize ? `
+      <section class="card add-ex">
+        <label>Add an exercise</label>
+        <div class="row" style="gap:8px">
+          <select id="add-ex-select" style="flex:1">
+            ${pool.map(e => `<option value="${e.id}">${e.name}</option>`).join("")}
+          </select>
+          <button class="ghost" id="add-ex-btn">Add</button>
+        </div>
+      </section>
+    ` : ""}
+
+    <section class="card save-bar">
+      <button class="primary" id="finish" style="width:100%">${isLogged ? "Update session" : "Save session"}</button>
+      ${isLogged ? `<button class="danger ghost" id="clear" style="width:100%;margin-top:8px">Discard this session</button>` : ""}
+    </section>
+  `;
+
+  for (const inp of root.querySelectorAll("input[data-ei]")) {
+    inp.addEventListener("input", (e) => {
+      const ei = +e.target.dataset.ei, si = +e.target.dataset.si, field = e.target.dataset.field;
+      session.exercises[ei].sets[si][field] = e.target.value;
+    });
+  }
+
+  for (const btn of root.querySelectorAll("button[data-rest]")) {
+    btn.addEventListener("click", () => mountTimer(+btn.dataset.rest));
+  }
+
+  // ── Customization (only when a generated plan is active) ──
+  for (const sel of root.querySelectorAll("select[data-swap]")) {
+    sel.addEventListener("change", (e) => swapExercise(+e.target.dataset.swap, e.target.value));
+  }
+  for (const btn of root.querySelectorAll("button[data-addset]")) {
+    btn.addEventListener("click", () => changeSets(+btn.dataset.addset, +1));
+  }
+  for (const btn of root.querySelectorAll("button[data-rmset]")) {
+    btn.addEventListener("click", () => changeSets(+btn.dataset.rmset, -1));
+  }
+  for (const btn of root.querySelectorAll("button[data-rmex]")) {
+    btn.addEventListener("click", () => removeExercise(+btn.dataset.rmex));
+  }
+  root.querySelector("#add-ex-btn")?.addEventListener("click", () => {
+    const id = root.querySelector("#add-ex-select").value;
+    addExercise(id);
+  });
+
+  root.querySelector("#finish").addEventListener("click", () => {
+    setSession(session);
+    toast(isLogged ? "Session updated" : "Session saved — beat these numbers next time");
+    rerender();
+  });
+  root.querySelector("#clear")?.addEventListener("click", async () => {
+    const ok = await confirmAction(`Discard logged session for ${dateKey}?`, {
+      title: "Discard session?", okLabel: "Discard", danger: true,
+    });
+    if (!ok) return;
+    update("workouts", (all) => { const c = { ...all }; delete c[dateKey]; return c; });
+    rerender();
+  });
+
+  // Snapshot current inputs so structural edits don't drop unsaved values.
+  function snapshot() { setSession(session); }
+  function editSavedSession(fn) {
+    update("workouts", (all) => {
+      const s = structuredClone(all[dateKey]);
+      fn(s);
+      return { ...all, [dateKey]: s };
+    });
+  }
+
+  function swapExercise(ei, newId) {
+    const name = session.exercises[ei].name;
+    const keepSets = session.exercises[ei].sets.length;
+    const fresh = prescribeExercise(newId, goal, keepSets);
+    if (!fresh || fresh.name === name) return;
+    snapshot();
+    const tIdx = template.findIndex(m => m.name === name);
+    if (tIdx >= 0) { const list = [...template]; list[tIdx] = fresh; setTemplate(list); }
+    editSavedSession(s => { s.exercises[ei] = { name: fresh.name, category: fresh.category, sets: blankSets(fresh.sets) }; });
+    toast(`Swapped to ${fresh.name}`);
+    rerender();
+  }
+
+  function changeSets(ei, delta) {
+    const count = session.exercises[ei].sets.length;
+    const next = count + delta;
+    if (next < 1 || next > 10) return;
+    snapshot();
+    const name = session.exercises[ei].name;
+    const tIdx = template.findIndex(m => m.name === name);
+    if (tIdx >= 0) { const list = [...template]; list[tIdx] = { ...list[tIdx], sets: next }; setTemplate(list); }
+    editSavedSession(s => {
+      if (delta > 0) s.exercises[ei].sets.push({ w: "", r: "" });
+      else s.exercises[ei].sets.pop();
+    });
+    rerender();
+  }
+
+  function removeExercise(ei) {
+    const name = session.exercises[ei].name;
+    snapshot();
+    const tIdx = template.findIndex(m => m.name === name);
+    if (tIdx >= 0) setTemplate(template.filter((_, i) => i !== tIdx));
+    editSavedSession(s => { s.exercises.splice(ei, 1); });
+    toast(`Removed ${name}`);
+    rerender();
+  }
+
+  function addExercise(id) {
+    const fresh = prescribeExercise(id, goal, 3);
+    if (!fresh) return;
+    if (session.exercises.some(e => e.name === fresh.name)) { toast(`${fresh.name} is already in this day`); return; }
+    snapshot();
+    setTemplate([...template, fresh]);
+    editSavedSession(s => { s.exercises.push({ name: fresh.name, category: fresh.category, sets: blankSets(fresh.sets) }); });
+    toast(`Added ${fresh.name}`);
+    rerender();
+  }
+}
+
+function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, canCustomize, equipment) {
+  const lastSets = lastEx?.sets || [];
+  const prog = progressionFor(meta, day, allWorkouts);
+  const chip = prog.text ? `<div class="overload-hint hint-${prog.kind}">${PROG_ICON[prog.kind] || "💡"} ${prog.text}</div>` : "";
+  const tW = prog.target?.w ?? "";
+  const tR = prog.target?.r ?? "";
+  const alts = canCustomize ? alternativesFor(meta, equipment) : [];
+
+  return `
+    <section class="card exercise" data-ex="${ei}">
+      <div class="ex-head">
+        <div class="ex-title">
+          <span class="ex-icon-wrap">${iconFor(meta.name, meta.category)}</span>
+          <div>
+            <div class="ex-name">${meta.name}</div>
+            <a class="ex-demo" href="${demoLink(meta.name)}" target="_blank" rel="noopener noreferrer">▶ Watch demo</a>
+          </div>
+        </div>
+        <div class="ex-head-right">
+          <span class="ex-target">${meta.sets}×${meta.reps}</span>
+          ${canCustomize && alts.length > 1 ? `
+            <label class="swap" title="Swap exercise">
+              <span aria-hidden="true">⇄</span>
+              <select data-swap="${ei}" aria-label="Swap ${meta.name}">
+                ${alts.map(a => `<option value="${a.id}" ${a.name === meta.name ? "selected" : ""}>${a.name}</option>`).join("")}
+              </select>
+            </label>` : ""}
+        </div>
+      </div>
+      ${chip}
+      <div class="set-row" style="margin-top:8px">
+        <span class="idx muted small">#</span>
+        <label class="muted small" style="margin:0">Weight</label>
+        <label class="muted small" style="margin:0">Reps</label>
+        <span class="last">Last</span>
+      </div>
+      ${logged.sets.map((s, si) => {
+        const l = lastSets[si];
+        const lastLbl = l && (l.w || l.r) ? `${l.w || "—"}×${l.r || "—"}` : "—";
+        return `
+          <div class="set-row">
+            <span class="idx">${si + 1}</span>
+            <input type="number" inputmode="decimal" step="0.5" min="0" data-ei="${ei}" data-si="${si}" data-field="w" value="${s.w}" placeholder="${tW || l?.w || ""}" />
+            <input type="number" inputmode="numeric" min="0" data-ei="${ei}" data-si="${si}" data-field="r" value="${s.r}" placeholder="${tR || l?.r || ""}" />
+            <span class="last">${lastLbl}</span>
+          </div>
+        `;
+      }).join("")}
+      <div class="set-actions">
+        ${canCustomize ? `
+          <button class="ghost small" data-addset="${ei}">＋ set</button>
+          ${logged.sets.length > 1 ? `<button class="ghost small" data-rmset="${ei}">－ set</button>` : ""}
+          <button class="ghost small" data-rmex="${ei}" title="Remove exercise">✕</button>
+        ` : ""}
+        <button class="ghost small" data-rest="${meta.rest}">⏱ ${meta.rest}s rest</button>
+      </div>
+    </section>
+  `;
+}
+
+const PROG_ICON = { up: "↑", hold: "→", deload: "⤵", new: "•" };
+
+function blankSets(n) { return Array.from({ length: n }, () => ({ w: "", r: "" })); }
+function blankSession(list) {
+  return list.map(e => ({ name: e.name, category: e.category, sets: blankSets(e.sets) }));
+}
+
+function findLastSession(all, day, excludeDate) {
+  const entries = Object.entries(all)
+    .filter(([d, s]) => d !== excludeDate && s.day === day)
+    .sort((a, b) => b[0].localeCompare(a[0]));
+  if (!entries.length) return null;
+  return { date: entries[0][0], ...entries[0][1] };
+}
+
+function weekday(iso) {
+  const d = new Date(iso + "T12:00:00");
+  return ["sun","mon","tue","wed","thu","fri","sat"][d.getDay()];
+}
+
+function capitalize(s) { return s[0].toUpperCase() + s.slice(1); }

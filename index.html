@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0d10" />
+  <title>Tempo</title>
+  <meta name="description" content="Generate a workout plan from your goal, schedule, and equipment, auto-progress your lifts, and track calories and macros — offline and on-device." />
+
+  <!-- PWA -->
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="application-name" content="Tempo" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Tempo" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
+
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%234ade80'/%3E%3Cpath d='M30 35 h40 M30 50 h40 M30 65 h40' stroke='%23062d1a' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1 id="view-title">Today</h1>
+    <div class="topbar-right">
+      <span id="today-date" class="muted"></span>
+      <button id="help-btn" class="icon-btn" aria-label="Daily rules &amp; tips" title="Daily rules &amp; tips">💡</button>
+    </div>
+  </header>
+
+  <main id="app" aria-live="polite"></main>
+
+  <nav class="tabs" role="tablist">
+    <a href="/today"    data-tab="today"    class="tab">Today</a>
+    <a href="/workout"  data-tab="workout"  class="tab">Workout</a>
+    <a href="/meals"    data-tab="meals"    class="tab">Meals</a>
+    <a href="/progress" data-tab="progress" class="tab">Progress</a>
+    <a href="/settings" data-tab="settings" class="tab">Settings</a>
+  </nav>
+
+  <div id="rest-timer-root"></div>
+  <div id="modal-root"></div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

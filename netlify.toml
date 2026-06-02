@@ -1,0 +1,17 @@
+[build]
+  publish = "."
+
+# No build step needed — pure static.
+# Exclude dev-only files from the deploy bundle.
+[build.processing]
+  skip_processing = true
+
+# Don't bundle the dev server.
+[functions]
+  directory = ""
+
+[[redirects]]
+  # Fallback: serve index.html for any unknown deep link so hash routing keeps working
+  from = "/*"
+  to = "/index.html"
+  status = 200

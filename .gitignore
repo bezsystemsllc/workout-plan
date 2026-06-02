@@ -1,0 +1,20 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Netlify CLI artifacts
+.netlify/
+
+# Local Claude Code settings (launch.json is shared, settings.local.json is per-machine)
+.claude/settings.local.json
+
+# Local user data, if anyone exports a backup into the repo
+*.backup.json
+tempo-*.json
+cut-to-abs-*.json
