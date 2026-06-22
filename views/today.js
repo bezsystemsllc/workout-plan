@@ -4,6 +4,7 @@ import { getMeals } from "../lib/meals.js";
 import { dailyMotivation, greeting } from "../data/motivation.js";
 import { waterTargetMl, mlToOz, mealTimes, fmtTime12, toMin, pct, barClass } from "../lib/calc.js";
 import { getActiveSuggestions, dismissSuggestion } from "../lib/adaptations.js";
+import { esc } from "../lib/html.js";
 import { load, todayISO, weekdayKey } from "../storage.js";
 import { navigate } from "../app.js";
 
@@ -38,7 +39,7 @@ export function renderToday(root) {
     </section>
     ${suggestions.map(renderSuggestion).join("")}
     <section class="card">
-      <h2>${split.label}</h2>
+      <h2>${esc(split.label)}</h2>
       ${renderTrainingSummary(split, plan.workouts)}
       ${split.type === "lift"
         ? `<button class="primary" id="go-workout" style="margin-top:10px;width:100%">Start workout →</button>`
@@ -67,8 +68,8 @@ export function renderToday(root) {
       ${nextMeal ? `
         <div class="next-meal">
           <span class="muted small">Next up</span>
-          <div><b>${nextMeal.m.name}</b> · <span class="meal-time">${fmtTime12(times[nextMeal.m.id])}</span></div>
-          <div class="hint">${nextMeal.m.items}</div>
+          <div><b>${esc(nextMeal.m.name)}</b> · <span class="meal-time">${esc(fmtTime12(times[nextMeal.m.id]))}</span></div>
+          <div class="hint">${esc(nextMeal.m.items)}</div>
         </div>
       ` : ""}
       <button class="ghost" id="go-meals" style="margin-top:10px;width:100%">Open meal plan →</button>
@@ -95,12 +96,12 @@ export function renderToday(root) {
 
 function renderSuggestion(s) {
   return `
-    <section class="card suggestion suggestion-${s.severity}">
-      <div class="sugg-title">${s.title}</div>
-      <div class="sugg-body">${s.body}</div>
+    <section class="card suggestion suggestion-${esc(s.severity)}">
+      <div class="sugg-title">${esc(s.title)}</div>
+      <div class="sugg-body">${esc(s.body)}</div>
       <div class="row" style="margin-top:10px;gap:8px">
-        <button class="primary" data-sugg-apply="${s.id}">Accept</button>
-        <button class="ghost" data-sugg-dismiss="${s.id}">Dismiss</button>
+        <button class="primary" data-sugg-apply="${esc(s.id)}">Accept</button>
+        <button class="ghost" data-sugg-dismiss="${esc(s.id)}">Dismiss</button>
       </div>
     </section>
   `;
@@ -114,7 +115,7 @@ function renderTrainingSummary(split, workouts) {
     return `
       <div class="cardio-block">
         <span class="ex-icon-wrap">${iconFor(null, "cardio")}</span>
-        <p class="muted" style="margin:0">${split.detail || "Conditioning day — treadmill."}</p>
+        <p class="muted" style="margin:0">${esc(split.detail || "Conditioning day — treadmill.")}</p>
       </div>`;
   }
   if (split.type === "soccer") { // legacy fallback plan
@@ -127,8 +128,8 @@ function renderTrainingSummary(split, workouts) {
         <li>
           <span class="ex-icon-wrap">${iconFor(e.name, e.category)}</span>
           <div style="flex:1">
-            <div><b>${e.name}</b></div>
-            <div class="meta">${e.sets}×${e.reps}</div>
+            <div><b>${esc(e.name)}</b></div>
+            <div class="meta">${esc(e.sets)}×${esc(e.reps)}</div>
           </div>
         </li>
       `).join("")}

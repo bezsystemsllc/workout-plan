@@ -1,9 +1,10 @@
 import { getActivePlan, alternativesFor, prescribeExercise, DAY_LABEL, DEFAULT_PREFS } from "../lib/plan.js";
-import { exercisesFor } from "../data/exercises.js";
+import { EXERCISES, exercisesFor } from "../data/exercises.js";
 import { iconFor, demoLink } from "../data/exercise-icons.js";
-import { progressionFor } from "../lib/progression.js";
+import { buildProgressionHistory, progressionFor, sessionsForDay } from "../lib/progression.js";
 import { confirmAction, toast } from "../lib/modal.js";
 import { dateNavHtml, wireDateNav } from "../lib/date-nav.js";
+import { esc } from "../lib/html.js";
 import { load, update, todayISO } from "../storage.js";
 import { mountTimer } from "./timer.js";
 
@@ -43,10 +44,10 @@ function renderPickerView(root, dateKey, split, rerender, plan) {
   root.innerHTML = `
     ${dateNavHtml(dateKey)}
     <section class="card">
-      <h2>${split.label}</h2>
-      <p class="muted">${split.type === "rest" ? "Rest day — recovery." : (split.detail || "Conditioning day.")} Want to log a lift anyway?</p>
+      <h2>${esc(split.label)}</h2>
+      <p class="muted">${esc(split.type === "rest" ? "Rest day — recovery." : (split.detail || "Conditioning day."))} Want to log a lift anyway?</p>
       <div class="grid-2" style="margin-top:8px">
-        ${dayKeys.map(k => `<button data-pick="${k}">${DAY_LABEL[k] || capitalize(k)}</button>`).join("")}
+        ${dayKeys.map(k => `<button data-pick="${esc(k)}">${esc(DAY_LABEL[k] || capitalize(k))}</button>`).join("")}
       </div>
     </section>
   `;
@@ -69,19 +70,26 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
   const isToday = dateKey === todayISO();
   const canCustomize = !plan.meta?.fallback && !!plan.workouts[day];
   const equipment = plan.meta?.equipment || DEFAULT_PREFS.equipment;
-  const goal = plan.meta?.goal || load("settings").profile?.goal || "fat_loss";
-  const lastSession = findLastSession(allWorkouts, day, dateKey);
+  const settings = load("settings");
+  const goal = plan.meta?.goal || settings.profile?.goal || "fat_loss";
+  const starterContext = {
+    profile: settings.profile,
+    experience: plan.meta?.experience || settings.trainingPrefs?.experience || "beginner",
+  };
+  const daySessions = sessionsForDay(day, allWorkouts);
+  const lastSession = daySessions.find(s => s.date !== dateKey) || null;
+  const progressionHistory = buildProgressionHistory(day, allWorkouts, daySessions);
 
-  const metaByName = Object.fromEntries(template.map(m => [m.name, m]));
+  const metaByName = Object.fromEntries(template.map(m => [m.name, hydrateExerciseMeta(m)]));
   const session = isLogged
     ? existing
     : { day, exercises: blankSession(template) };
 
   const items = session.exercises.map((logged, ei) => {
-    const meta = metaByName[logged.name] || {
-      name: logged.name, category: logged.category, reps: "—",
-      rest: 90, sets: logged.sets.length, prog: "weight", inc: 5,
-    };
+    const meta = metaByName[logged.name] || hydrateExerciseMeta({
+      name: logged.name, category: logged.category, reps: "8–12",
+      rest: 90, sets: logged.sets.length,
+    });
     return { meta, logged, ei };
   });
 
@@ -100,19 +108,19 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
   root.innerHTML = `
     ${dateNavHtml(dateKey)}
     <section class="card">
-      <div class="spread"><h2 style="margin:0">${DAY_LABEL[day] || capitalize(day)}</h2><span class="muted">${dateKey}</span></div>
-      ${lastSession ? `<div class="hint">Last ${day} session: ${lastSession.date}</div>` : `<div class="hint">No prior ${day} session — set your starting weights.</div>`}
-      ${!isToday && split.type !== "lift" ? `<div class="hint" style="margin-top:6px">${split.label} on this date — logging a lift anyway.</div>` : ""}
+      <div class="spread"><h2 style="margin:0">${esc(DAY_LABEL[day] || capitalize(day))}</h2><span class="muted">${esc(dateKey)}</span></div>
+      ${lastSession ? `<div class="hint">Last ${esc(day)} session: ${esc(lastSession.date)}</div>` : `<div class="hint">No prior ${esc(day)} session — set your starting weights.</div>`}
+      ${!isToday && split.type !== "lift" ? `<div class="hint" style="margin-top:6px">${esc(split.label)} on this date — logging a lift anyway.</div>` : ""}
     </section>
 
-    ${items.map(it => renderExercise(it.meta, it.logged, lastSession?.exercises?.find(e => e.name === it.meta.name), it.ei, day, allWorkouts, canCustomize, equipment)).join("")}
+    ${items.map(it => renderExercise(it.meta, it.logged, lastSession?.exercises?.find(e => e.name === it.meta.name), it.ei, day, allWorkouts, progressionHistory, starterContext, canCustomize, equipment)).join("")}
 
     ${canCustomize ? `
       <section class="card add-ex">
         <label>Add an exercise</label>
         <div class="row" style="gap:8px">
           <select id="add-ex-select" style="flex:1">
-            ${pool.map(e => `<option value="${e.id}">${e.name}</option>`).join("")}
+            ${pool.map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join("")}
           </select>
           <button class="ghost" id="add-ex-btn">Add</button>
         </div>
@@ -228,12 +236,13 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
   }
 }
 
-function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, canCustomize, equipment) {
+function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, progressionHistory, starterContext, canCustomize, equipment) {
   const lastSets = lastEx?.sets || [];
-  const prog = progressionFor(meta, day, allWorkouts);
-  const chip = prog.text ? `<div class="overload-hint hint-${prog.kind}">${PROG_ICON[prog.kind] || "💡"} ${prog.text}</div>` : "";
+  const prog = progressionFor(meta, day, allWorkouts, progressionHistory, starterContext);
+  const chip = prog.text ? `<div class="overload-hint hint-${esc(prog.kind)}">${PROG_ICON[prog.kind] || "💡"} ${esc(prog.text)}</div>` : "";
   const tW = prog.target?.w ?? "";
   const tR = prog.target?.r ?? "";
+  const loadInput = loadInputFor(meta);
   const alts = canCustomize ? alternativesFor(meta, equipment) : [];
 
   return `
@@ -242,17 +251,17 @@ function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, canCustomize
         <div class="ex-title">
           <span class="ex-icon-wrap">${iconFor(meta.name, meta.category)}</span>
           <div>
-            <div class="ex-name">${meta.name}</div>
-            <a class="ex-demo" href="${demoLink(meta.name)}" target="_blank" rel="noopener noreferrer">▶ Watch demo</a>
+            <div class="ex-name">${esc(meta.name)}</div>
+            <a class="ex-demo" href="${esc(demoLink(meta.name))}" target="_blank" rel="noopener noreferrer">▶ Watch demo</a>
           </div>
         </div>
         <div class="ex-head-right">
-          <span class="ex-target">${meta.sets}×${meta.reps}</span>
+          <span class="ex-target">${esc(meta.sets)}×${esc(meta.reps)}</span>
           ${canCustomize && alts.length > 1 ? `
             <label class="swap" title="Swap exercise">
               <span aria-hidden="true">⇄</span>
-              <select data-swap="${ei}" aria-label="Swap ${meta.name}">
-                ${alts.map(a => `<option value="${a.id}" ${a.name === meta.name ? "selected" : ""}>${a.name}</option>`).join("")}
+              <select data-swap="${ei}" aria-label="Swap ${esc(meta.name)}">
+                ${alts.map(a => `<option value="${esc(a.id)}" ${a.name === meta.name ? "selected" : ""}>${esc(a.name)}</option>`).join("")}
               </select>
             </label>` : ""}
         </div>
@@ -260,7 +269,7 @@ function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, canCustomize
       ${chip}
       <div class="set-row" style="margin-top:8px">
         <span class="idx muted small">#</span>
-        <label class="muted small" style="margin:0">Weight</label>
+        <label class="muted small" style="margin:0">${loadInput.label}</label>
         <label class="muted small" style="margin:0">Reps</label>
         <span class="last">Last</span>
       </div>
@@ -270,9 +279,9 @@ function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, canCustomize
         return `
           <div class="set-row">
             <span class="idx">${si + 1}</span>
-            <input type="number" inputmode="decimal" step="0.5" min="0" data-ei="${ei}" data-si="${si}" data-field="w" value="${s.w}" placeholder="${tW || l?.w || ""}" />
-            <input type="number" inputmode="numeric" min="0" data-ei="${ei}" data-si="${si}" data-field="r" value="${s.r}" placeholder="${tR || l?.r || ""}" />
-            <span class="last">${lastLbl}</span>
+            <input type="${loadInput.type}" inputmode="${loadInput.inputmode}" ${loadInput.type === "number" ? 'step="0.5" min="0"' : ""} data-ei="${ei}" data-si="${si}" data-field="w" value="${esc(s.w)}" placeholder="${esc(tW || l?.w || "")}" />
+            <input type="number" inputmode="numeric" min="0" data-ei="${ei}" data-si="${si}" data-field="r" value="${esc(s.r)}" placeholder="${esc(tR || l?.r || "")}" />
+            <span class="last">${esc(lastLbl)}</span>
           </div>
         `;
       }).join("")}
@@ -280,27 +289,58 @@ function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, canCustomize
         ${canCustomize ? `
           <button class="ghost small" data-addset="${ei}">＋ set</button>
           ${logged.sets.length > 1 ? `<button class="ghost small" data-rmset="${ei}">－ set</button>` : ""}
-          <button class="ghost small" data-rmex="${ei}" title="Remove exercise">✕</button>
+          <button class="ghost small" data-rmex="${ei}" title="Remove exercise" aria-label="Remove ${esc(meta.name)}">✕</button>
         ` : ""}
-        <button class="ghost small" data-rest="${meta.rest}">⏱ ${meta.rest}s rest</button>
+        <button class="ghost small" data-rest="${esc(meta.rest)}">⏱ ${esc(meta.rest)}s rest</button>
       </div>
     </section>
   `;
 }
 
 const PROG_ICON = { up: "↑", hold: "→", deload: "⤵", new: "•" };
+const EXERCISE_ALIASES = {
+  "Barbell row": "Barbell bent-over row",
+  "Bulgarian split squat (DB)": "Bulgarian split squat",
+  "Cable/band crunch": "Band crunch",
+  "Dumbbell bicep curl": "Dumbbell biceps curl",
+  "Dumbbell overhead press": "Seated dumbbell press",
+  "Face pull (band)": "Band face pull",
+  "Plank (seconds)": "Plank",
+  "Pull-up (band-assist ok)": "Pull-up",
+  "Romanian deadlift": "Dumbbell Romanian deadlift",
+  "Russian twist (w/ plate)": "Russian twist",
+  "Single-arm DB row": "Single-arm dumbbell row",
+  "Tricep pushdown (band)": "Band triceps pushdown",
+  "Weighted plank (seconds)": "Weighted plank",
+};
+
+function hydrateExerciseMeta(ex) {
+  const matchName = EXERCISE_ALIASES[ex.name] || ex.name;
+  const match = EXERCISES.find(e => e.name === matchName);
+  if (!match) return ex;
+  return {
+    ...match,
+    ...ex,
+    category: ex.category || match.category,
+    pattern: ex.pattern || match.pattern,
+    equip: ex.equip || match.equip,
+    prog: ex.prog || match.prog,
+    inc: ex.inc ?? match.inc,
+    compound: ex.compound ?? match.compound,
+    reps: ex.reps && ex.reps !== "—" ? ex.reps : match.reps,
+  };
+}
+
+function loadInputFor(meta) {
+  const equip = meta.equip || [];
+  if (equip.includes("band")) return { label: "Band", type: "text", inputmode: "text" };
+  if (equip.includes("bodyweight") && meta.prog !== "weight") return { label: "Load", type: "text", inputmode: "text" };
+  return { label: "Weight", type: "number", inputmode: "decimal" };
+}
 
 function blankSets(n) { return Array.from({ length: n }, () => ({ w: "", r: "" })); }
 function blankSession(list) {
   return list.map(e => ({ name: e.name, category: e.category, sets: blankSets(e.sets) }));
-}
-
-function findLastSession(all, day, excludeDate) {
-  const entries = Object.entries(all)
-    .filter(([d, s]) => d !== excludeDate && s.day === day)
-    .sort((a, b) => b[0].localeCompare(a[0]));
-  if (!entries.length) return null;
-  return { date: entries[0][0], ...entries[0][1] };
 }
 
 function weekday(iso) {

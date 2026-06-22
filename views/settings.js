@@ -1,4 +1,4 @@
-import { load, update } from "../storage.js";
+import { clearStorage, load, update } from "../storage.js";
 import {
   ACTIVITY, GOAL, SEX, computeTargets, projectTargetWeightLb,
   bmr, tdee, kgToLb, lbToKg, cmToFtIn, ftInToCm,
@@ -373,7 +373,7 @@ export function renderSettings(root, { onboarding = false } = {}) {
       "This erases everything: profile, workouts, meals, water, progress entries, and adaptation history. There is no undo.",
       { title: "Reset all data?", okLabel: "Erase everything", danger: true });
     if (!ok) return;
-    localStorage.removeItem("cut-to-abs:v1");
+    clearStorage();
     location.reload();
   }
 

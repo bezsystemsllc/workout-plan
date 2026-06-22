@@ -1,6 +1,10 @@
 import { load, update, exportJSON, importJSON, todayISO } from "../storage.js";
 import { lbToKg, kgToLb, inToCm, cmToIn } from "../lib/calc.js";
 import { notify, confirmAction, toast } from "../lib/modal.js";
+import { esc } from "../lib/html.js";
+
+const HISTORY_ROW_LIMIT = 120;
+const CHART_POINT_LIMIT = 180;
 
 export function renderProgress(root) {
   const settings = load("settings");
@@ -15,12 +19,14 @@ export function renderProgress(root) {
   function render() {
     const entries = [...load("progress")].sort((a, b) => a.date.localeCompare(b.date));
     const stats = computeStats(entries, settings.targetWeightLb);
+    const visibleHistory = entries.slice(-HISTORY_ROW_LIMIT).reverse();
+    const hiddenHistoryCount = Math.max(0, entries.length - visibleHistory.length);
 
     root.innerHTML = `
       <section class="card">
         <h2>Log entry</h2>
         <div class="grid-2">
-          <div><label>Date</label><input id="p-date" type="date" value="${todayISO()}" /></div>
+          <div><label>Date</label><input id="p-date" type="date" value="${todayISO()}" max="${todayISO()}" /></div>
           <div><label>Weight (${wUnit})</label><input id="p-w" type="number" inputmode="decimal" step="0.1" /></div>
           <div><label>Waist (${waistUnit})</label><input id="p-waist" type="number" inputmode="decimal" step="0.1" /></div>
           <div style="display:flex;align-items:flex-end"><button class="primary" id="p-save" style="width:100%">Save</button></div>
@@ -49,15 +55,16 @@ export function renderProgress(root) {
         ${entries.length === 0
           ? `<p class="empty small">No entries yet.</p>`
           : `
+            ${hiddenHistoryCount ? `<p class="hint">Showing the most recent ${visibleHistory.length} of ${entries.length} entries. Export JSON for the full history.</p>` : ""}
             <table class="entry-table">
               <thead><tr><th>Date</th><th class="num">Weight (${wUnit})</th><th class="num">Waist (${waistUnit})</th><th></th></tr></thead>
               <tbody>
-                ${entries.slice().reverse().map((e, i) => `
+                ${visibleHistory.map((e) => `
                   <tr>
-                    <td>${e.date}</td>
+                    <td>${esc(e.date)}</td>
                     <td class="num">${dispW(e.weightLb) ?? "—"}</td>
                     <td class="num">${dispWaist(e.waistIn) ?? "—"}</td>
-                    <td><button class="ghost small" data-rm-date="${e.date}" style="min-height:32px;padding:4px 8px">✕</button></td>
+                    <td><button class="ghost small" data-rm-date="${esc(e.date)}" aria-label="Delete entry for ${esc(e.date)}" style="min-height:32px;padding:4px 8px">✕</button></td>
                   </tr>
                 `).join("")}
               </tbody>
@@ -84,8 +91,25 @@ export function renderProgress(root) {
         await notify("Need a date and at least one measurement (weight or waist).", { title: "Missing info" });
         return;
       }
+      if (!validISODate(date) || date > todayISO()) {
+        await notify("Choose today or an earlier valid date.", { title: "Check your date" });
+        return;
+      }
       const weightLb = isNaN(wRaw) ? null : (metric ? kgToLb(wRaw) : wRaw);
       const waistIn = isNaN(waistRaw) ? null : (metric ? cmToIn(waistRaw) : waistRaw);
+      const err = measurementError(weightLb, waistIn, metric);
+      if (err) {
+        await notify(err, { title: "Check your entry" });
+        return;
+      }
+      const outlier = weightOutlier(load("progress"), date, weightLb, metric);
+      if (outlier) {
+        const ok = await confirmAction(
+          `This is ${outlier.delta} ${outlier.unit} from your last logged weight. Save it anyway?`,
+          { title: "Unusual weight change?", okLabel: "Save anyway" },
+        );
+        if (!ok) return;
+      }
       update("progress", (list) => {
         const filtered = list.filter(e => e.date !== date);
         filtered.push({ date, weightLb, waistIn });
@@ -121,7 +145,7 @@ export function renderProgress(root) {
       const file = e.target.files[0];
       if (!file) return;
       const ok = await confirmAction(
-        "Importing will REPLACE all current data (profile, workouts, meals, progress). This cannot be undone.",
+        "Importing will REPLACE all current data (profile, workouts, meals, saved foods, and progress). This cannot be undone.",
         { title: "Replace all data?", okLabel: "Import + replace", danger: true },
       );
       if (!ok) return;
@@ -137,6 +161,38 @@ export function renderProgress(root) {
   }
 
   render();
+}
+
+function validISODate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(value + "T12:00:00");
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}
+
+function measurementError(weightLb, waistIn, metric) {
+  if (weightLb != null && (weightLb < 50 || weightLb > 800)) {
+    return metric ? "Weight must be between 23 and 363 kg." : "Weight must be between 50 and 800 lb.";
+  }
+  if (waistIn != null && (waistIn < 10 || waistIn > 100)) {
+    return metric ? "Waist must be between 25 and 254 cm." : "Waist must be between 10 and 100 in.";
+  }
+  return null;
+}
+
+function weightOutlier(entries, date, weightLb, metric) {
+  if (weightLb == null) return null;
+  const previous = entries
+    .filter(e => e.weightLb != null && e.date !== date && e.date < date)
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
+  if (!previous) return null;
+  const days = (new Date(date) - new Date(previous.date)) / 86400000;
+  const deltaLb = +(weightLb - previous.weightLb).toFixed(1);
+  if (days <= 14 && Math.abs(deltaLb) >= 8) {
+    return metric
+      ? { delta: lbToKg(Math.abs(deltaLb)), unit: "kg" }
+      : { delta: Math.abs(deltaLb), unit: "lb" };
+  }
+  return null;
 }
 
 function computeStats(entries, target) {
@@ -162,7 +218,7 @@ function computeStats(entries, target) {
 }
 
 function renderChart(entries, metric = false) {
-  const points = entries.filter(e => e.weightLb != null);
+  const points = samplePoints(entries.filter(e => e.weightLb != null), CHART_POINT_LIMIT);
   if (points.length < 2) return "";
 
   const W = 320, H = 180, PAD = 28;
@@ -193,4 +249,10 @@ function renderChart(entries, metric = false) {
       ${dots}
     </svg>
   `;
+}
+
+function samplePoints(points, limit) {
+  if (points.length <= limit) return points;
+  const last = points.length - 1;
+  return Array.from({ length: limit }, (_, i) => points[Math.round((i * last) / (limit - 1))]);
 }

@@ -213,6 +213,10 @@ body.onboarding { padding-bottom: env(safe-area-inset-bottom); }
   border-radius: 8px; border-left: 3px solid var(--accent);
 }
 
+/* "Save to My Foods" toggle in the off-plan form */
+.cf-save-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--text); }
+.cf-save-row input { width: 18px; height: 18px; accent-color: var(--accent); flex-shrink: 0; }
+
 /* Modal + toast */
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 40;

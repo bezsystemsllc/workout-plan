@@ -34,6 +34,7 @@ export const EQUIPMENT_PRESETS = {
   full_gym:    { label: "Full gym",    equipment: ["dumbbell","kettlebell","barbell","rack","bench","ezbar","band","machine","cable","pullup","treadmill"] },
   home_gym:    { label: "Home gym",    equipment: ["dumbbell","kettlebell","barbell","rack","bench","ezbar","band","pullup","treadmill"] },
   home_basics: { label: "Home basics", equipment: ["dumbbell","barbell","bench","ezbar","band","treadmill"] },
+  bands:       { label: "Bands",       equipment: ["band"] },
   bodyweight:  { label: "Bodyweight",  equipment: [] },
 };
 

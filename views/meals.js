@@ -3,6 +3,7 @@ import { getActivePlan } from "../lib/plan.js";
 import { load, update, todayISO } from "../storage.js";
 import { waterTargetMl, mlToOz, mealTimes, fmtTime12, toMin, pct, barClass } from "../lib/calc.js";
 import { dateNavHtml, wireDateNav } from "../lib/date-nav.js";
+import { esc } from "../lib/html.js";
 import { notify, toast } from "../lib/modal.js";
 
 export function renderMeals(root) {
@@ -45,6 +46,7 @@ export function renderMeals(root) {
 
   function render() {
     const state = getState();
+    const savedFoods = load("savedFoods");
     const t = totals(state);
     const remaining = targets.kcal - t.kcal;
     const isToday = viewedDate === today;
@@ -126,25 +128,37 @@ export function renderMeals(root) {
               <tbody>
                 ${state.custom.map((c, i) => `
                   <tr>
-                    <td>${escape(c.name)}</td>
+                    <td>${esc(c.name)}</td>
                     <td class="num">${c.kcal}</td>
                     <td class="num">${c.p}</td>
                     <td class="num">${c.f}</td>
                     <td class="num">${c.c}</td>
-                    <td><button class="ghost small" data-rm="${i}" style="min-height:32px;padding:4px 8px">✕</button></td>
+                    <td><button class="ghost small" data-rm="${i}" aria-label="Remove ${esc(c.name)}" style="min-height:32px;padding:4px 8px">✕</button></td>
                   </tr>
                 `).join("")}
               </tbody>
             </table>
           `}
+        ${savedFoods.length ? `
+          <label style="margin-top:10px">Quick-add from My Foods</label>
+          <div class="row" style="gap:8px">
+            <select id="cf-saved" style="flex:1">
+              <option value="">— pick a saved food —</option>
+              ${savedFoods.map((f, i) => `<option value="${i}">${esc(f.name)} · ${esc(f.kcal)} kcal</option>`).join("")}
+            </select>
+            <button class="ghost" id="cf-saved-rm" title="Forget selected food" aria-label="Forget selected food" style="min-width:44px">🗑</button>
+          </div>
+        ` : ""}
         <div class="grid-2" style="margin-top:10px">
           <div><label>Name</label><input id="cf-name" type="text" placeholder="Pizza slice" /></div>
           <div><label>kcal</label><input id="cf-kcal" type="number" inputmode="numeric" min="0" /></div>
           <div><label>Protein (g)</label><input id="cf-p" type="number" inputmode="numeric" min="0" /></div>
           <div><label>Fat (g)</label><input id="cf-f" type="number" inputmode="numeric" min="0" /></div>
           <div><label>Carbs (g)</label><input id="cf-c" type="number" inputmode="numeric" min="0" /></div>
-          <div style="display:flex;align-items:flex-end"><button class="primary" id="cf-add" style="width:100%">Add item</button></div>
+          <div><label>Qty</label><input id="cf-qty" type="number" inputmode="decimal" step="0.25" min="0.25" value="1" /></div>
         </div>
+        <label class="cf-save-row"><input type="checkbox" id="cf-save" checked /> Save to My Foods for next time</label>
+        <button class="primary" id="cf-add" style="width:100%;margin-top:10px">Add item</button>
       </section>
     `;
 
@@ -194,26 +208,55 @@ export function renderMeals(root) {
       });
     }
 
+    root.querySelector("#cf-saved")?.addEventListener("change", (e) => {
+      if (e.target.value === "") return;
+      const f = savedFoods[+e.target.value];
+      root.querySelector("#cf-name").value = f.name;
+      root.querySelector("#cf-kcal").value = f.kcal;
+      root.querySelector("#cf-p").value = f.p;
+      root.querySelector("#cf-f").value = f.f;
+      root.querySelector("#cf-c").value = f.c;
+      root.querySelector("#cf-qty").value = 1;
+    });
+    root.querySelector("#cf-saved-rm")?.addEventListener("click", () => {
+      const i = root.querySelector("#cf-saved").value;
+      if (i === "") return;
+      const name = savedFoods[+i].name;
+      update("savedFoods", (list) => list.filter((f) => f.name.toLowerCase() !== name.toLowerCase()));
+      toast(`Removed ${name} from My Foods`);
+      render();
+    });
+
     root.querySelector("#cf-add")?.addEventListener("click", async () => {
       const name = root.querySelector("#cf-name").value.trim();
       const kcal = +root.querySelector("#cf-kcal").value || 0;
       if (!name || !kcal) { await notify("Need at least a name and calories.", { title: "Missing info" }); return; }
-      const item = {
-        name,
-        kcal,
+      const qty = Math.max(0.25, +root.querySelector("#cf-qty").value || 1);
+      const base = {
+        name, kcal,
         p: +root.querySelector("#cf-p").value || 0,
         f: +root.querySelector("#cf-f").value || 0,
         c: +root.querySelector("#cf-c").value || 0,
       };
       const s = getState();
-      s.custom.push(item);
+      s.custom.push({
+        name: qty !== 1 ? `${name} ×${qty}` : name,
+        kcal: Math.round(base.kcal * qty),
+        p: Math.round(base.p * qty),
+        f: Math.round(base.f * qty),
+        c: Math.round(base.c * qty),
+      });
       setState(s);
-      toast(`Added ${name} (${kcal} kcal)`);
+      if (root.querySelector("#cf-save").checked) {
+        update("savedFoods", (list) => {
+          const key = name.toLowerCase();
+          return [...list.filter((f) => f.name.toLowerCase() !== key), base].sort((a, b) => a.name.localeCompare(b.name));
+        });
+      }
+      toast(`Added ${name}${qty !== 1 ? ` ×${qty}` : ""}`);
       render();
     });
   }
 
   render();
 }
-
-function escape(s) { return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }

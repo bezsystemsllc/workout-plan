@@ -1,6 +1,6 @@
-// Tempo service worker — offline app shell via precache + cache-first.
+// Tempo service worker — offline app shell via precache + background refresh.
 // Bump CACHE to ship an update (old caches are purged on activate).
-const CACHE = "tempo-v4";
+const CACHE = "tempo-v9";
 
 const ASSETS = [
   "./",
@@ -24,6 +24,7 @@ const ASSETS = [
   "./lib/calc.js",
   "./lib/modal.js",
   "./lib/date-nav.js",
+  "./lib/html.js",
   "./views/today.js",
   "./views/workout.js",
   "./views/meals.js",
@@ -31,6 +32,17 @@ const ASSETS = [
   "./views/settings.js",
   "./views/timer.js",
 ];
+const ASSET_URLS = new Set(ASSETS.map((asset) => new URL(asset, self.location.href).href));
+
+function fetchAndCache(req, cacheKey = req) {
+  return fetch(req).then((res) => {
+    if (res.ok && res.type === "basic") {
+      const copy = res.clone();
+      return caches.open(CACHE).then((c) => c.put(cacheKey, copy)).then(() => res);
+    }
+    return res;
+  });
+}
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
@@ -51,23 +63,19 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return;
   if (new URL(req.url).origin !== location.origin) return; // same-origin only
 
-  // Navigations: serve the cached app shell (clean-URL SPA). This makes deep
-  // links like /workout work offline and on any host, regardless of whether the
-  // server has an SPA fallback. Falls back to the network on a cold cache.
+  // Navigations: prefer the network so users see deployed fixes promptly, then
+  // fall back to the cached app shell for offline deep links like /workout.
   if (req.mode === "navigate") {
-    e.respondWith(caches.match("./index.html").then((r) => r || fetch(req)));
+    const fresh = fetchAndCache(req, "./index.html");
+    e.respondWith(fresh.catch(() => caches.match("./index.html")));
     return;
   }
 
-  // Assets: cache-first, then network (and cache what we fetch).
-  e.respondWith(
-    caches.match(req).then((cached) =>
-      cached ||
-      fetch(req).then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(req, copy));
-        return res;
-      }).catch(() => cached)
-    )
-  );
+  // App-shell assets are cache-first; CACHE version bumps pick up changes.
+  if (ASSET_URLS.has(req.url)) {
+    e.respondWith(caches.match(req).then((cached) => cached || fetchAndCache(req)));
+    return;
+  }
+
+  e.respondWith(fetch(req).catch(() => caches.match(req)));
 });
