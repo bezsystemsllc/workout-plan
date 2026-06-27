@@ -110,7 +110,10 @@ Netlify settings:
 - Publish directory: `.`
 - Function directory: handled by `netlify.toml`
 - Environment variables: set `OPENAI_API_KEY` to enable **Coach review**. Optional: set `OPENAI_MODEL` to choose the model; otherwise the function uses `gpt-4.1-mini`.
-- Optional abuse controls: set `COACH_ALLOWED_ORIGIN` to your deployed site origin, such as `https://your-site.netlify.app` or your custom domain, and `COACH_RATE_LIMIT` to the max coach reviews per client per 15 minutes. The default rate limit is `8`.
+- Abuse controls: coach calls are rate-limited by client IP before any OpenAI call is made. Set `COACH_RATE_LIMIT` for requests per window, `COACH_RATE_WINDOW_SECONDS` for the window size, and `COACH_DAILY_LIMIT` for the daily cap. Defaults: `5` requests per `900` seconds and `20` requests per day.
+- Production rate-limit store: set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` for shared per-IP limits across Netlify function instances. Without these, the function uses an in-memory fallback that is best-effort only on serverless cold starts.
+- Optional origin guard: set `COACH_ALLOWED_ORIGIN` to your deployed site origin, such as `https://your-site.netlify.app` or your custom domain. Multiple origins can be comma-separated.
+- Optional privacy hardening: set `RATE_LIMIT_SALT` so IP addresses are hashed before they become rate-limit keys.
 
 If `OPENAI_API_KEY` is missing, invalid, out of quota, rate-limited, or OpenAI is unavailable, the coach review shows a friendly unavailable message and applies no changes. Meal tracking, workouts, progress logging, offline PWA behavior, and the deterministic adaptation engine continue to work.
 

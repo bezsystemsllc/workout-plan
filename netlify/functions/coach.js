@@ -1,6 +1,9 @@
+const crypto = require("node:crypto");
+
 const ACTIONS = new Set(["increase_reps", "increase_load", "hold", "deload", "swap", "rest"]);
-const RATE_WINDOW_MS = 15 * 60 * 1000;
-const rateBuckets = new Map();
+const DEFAULT_RATE_WINDOW_SECONDS = 15 * 60;
+const memoryWindowBuckets = new Map();
+const memoryDailyBuckets = new Map();
 
 const COACH_SCHEMA = {
   type: "object",
@@ -87,9 +90,25 @@ exports.handler = async (event) => {
     return json(413, { error: "Coach snapshot is too large." });
   }
 
-  const rate = checkRateLimit(clientKey(event));
+  const rate = await checkRateLimit(clientKey(event));
   if (!rate.ok) {
     const retrySeconds = Math.max(1, Math.ceil(rate.retryAfterMs / 1000));
+    if (rate.reason === "daily") {
+      return unavailable(
+        429,
+        "coach_daily_limit",
+        `Daily coach review limit reached. Try again after ${retrySeconds} seconds. No changes were applied.`,
+        String(retrySeconds),
+      );
+    }
+    if (rate.reason === "store_unavailable") {
+      return unavailable(
+        503,
+        "rate_limit_unavailable",
+        "AI coach is temporarily unavailable because rate limiting could not be verified. No changes were applied.",
+        String(retrySeconds),
+      );
+    }
     return unavailable(
       429,
       "coach_rate_limit",
@@ -173,39 +192,133 @@ function requestOrigin(event) {
   }
 }
 
-function checkRateLimit(key) {
+async function checkRateLimit(key) {
+  const upstash = upstashConfig();
+  if (upstash) {
+    try {
+      return await checkUpstashRateLimit(upstash, key);
+    } catch (err) {
+      console.error("rate limit store failed", err);
+      return { ok: false, reason: "store_unavailable", retryAfterMs: 60 * 1000 };
+    }
+  }
+  return checkMemoryRateLimit(key);
+}
+
+async function checkUpstashRateLimit(upstash, key) {
+  const now = new Date();
+  const windowKey = `tempo:coach:rl:${key}`;
+  const dailyKey = `tempo:coach:daily:${dateStamp(now)}:${key}`;
+  const windowSeconds = rateWindowSeconds();
+  const dailySeconds = secondsUntilTomorrow(now);
+  const response = await fetch(`${upstash.url}/multi-exec`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${upstash.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify([
+      ["INCR", windowKey],
+      ["EXPIRE", windowKey, windowSeconds],
+      ["TTL", windowKey],
+      ["INCR", dailyKey],
+      ["EXPIRE", dailyKey, dailySeconds],
+      ["TTL", dailyKey],
+    ]),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !Array.isArray(body) || body.some((item) => item?.error)) {
+    throw new Error(body?.error || `Upstash rate limit failed with ${response.status}`);
+  }
+
+  const windowCount = Number(body[0]?.result) || 0;
+  const windowTtl = Math.max(1, Number(body[2]?.result) || windowSeconds);
+  const dailyCount = Number(body[3]?.result) || 0;
+  const dailyTtl = Math.max(1, Number(body[5]?.result) || dailySeconds);
+
+  if (dailyCount > dailyLimit()) return { ok: false, reason: "daily", retryAfterMs: dailyTtl * 1000 };
+  if (windowCount > rateLimit()) return { ok: false, reason: "window", retryAfterMs: windowTtl * 1000 };
+  return { ok: true };
+}
+
+function checkMemoryRateLimit(key) {
   const limit = rateLimit();
   const now = Date.now();
-  for (const [bucketKey, bucket] of rateBuckets) {
-    if (bucket.resetAt <= now) rateBuckets.delete(bucketKey);
-  }
+  cleanupExpired(memoryWindowBuckets, now);
+  cleanupExpired(memoryDailyBuckets, now);
 
-  const current = rateBuckets.get(key) || { count: 0, resetAt: now + RATE_WINDOW_MS };
+  const window = bumpBucket(memoryWindowBuckets, key, now, rateWindowSeconds() * 1000);
+  const daily = bumpBucket(memoryDailyBuckets, `${dateStamp(new Date())}:${key}`, now, secondsUntilTomorrow(new Date()) * 1000);
+
+  if (daily.count > dailyLimit()) return { ok: false, reason: "daily", retryAfterMs: daily.resetAt - now };
+  return window.count <= limit
+    ? { ok: true }
+    : { ok: false, reason: "window", retryAfterMs: window.resetAt - now };
+}
+
+function cleanupExpired(map, now) {
+  for (const [bucketKey, bucket] of map) {
+    if (bucket.resetAt <= now) map.delete(bucketKey);
+  }
+}
+
+function bumpBucket(map, key, now, ttlMs) {
+  const current = map.get(key) || { count: 0, resetAt: now + ttlMs };
   if (current.resetAt <= now) {
     current.count = 0;
-    current.resetAt = now + RATE_WINDOW_MS;
+    current.resetAt = now + ttlMs;
   }
   current.count += 1;
-  rateBuckets.set(key, current);
-
-  return current.count <= limit
-    ? { ok: true }
-    : { ok: false, retryAfterMs: current.resetAt - now };
+  map.set(key, current);
+  return current;
 }
 
 function rateLimit() {
-  const raw = Number(process.env.COACH_RATE_LIMIT || 8);
-  if (!Number.isFinite(raw)) return 8;
+  const raw = Number(process.env.COACH_RATE_LIMIT || 5);
+  if (!Number.isFinite(raw)) return 5;
   return Math.max(1, Math.min(50, Math.round(raw)));
+}
+
+function dailyLimit() {
+  const raw = Number(process.env.COACH_DAILY_LIMIT || 20);
+  if (!Number.isFinite(raw)) return 20;
+  return Math.max(1, Math.min(500, Math.round(raw)));
+}
+
+function rateWindowSeconds() {
+  const raw = Number(process.env.COACH_RATE_WINDOW_SECONDS || DEFAULT_RATE_WINDOW_SECONDS);
+  if (!Number.isFinite(raw)) return DEFAULT_RATE_WINDOW_SECONDS;
+  return Math.max(60, Math.min(3600, Math.round(raw)));
 }
 
 function clientKey(event) {
   const forwarded = header(event, "x-forwarded-for");
-  return header(event, "x-nf-client-connection-ip")
+  const ip = header(event, "x-nf-client-connection-ip")
     || header(event, "client-ip")
     || header(event, "x-real-ip")
     || (forwarded ? forwarded.split(",")[0].trim() : "")
     || "unknown";
+  return hashClientKey(ip);
+}
+
+function hashClientKey(ip) {
+  const salt = String(process.env.RATE_LIMIT_SALT || process.env.OPENAI_API_KEY || "tempo");
+  return crypto.createHmac("sha256", salt).update(String(ip)).digest("hex").slice(0, 32);
+}
+
+function upstashConfig() {
+  const url = String(process.env.UPSTASH_REDIS_REST_URL || "").replace(/\/$/, "");
+  const token = String(process.env.UPSTASH_REDIS_REST_TOKEN || "");
+  return url && token ? { url, token } : null;
+}
+
+function dateStamp(date) {
+  return date.toISOString().slice(0, 10).replaceAll("-", "");
+}
+
+function secondsUntilTomorrow(date) {
+  const tomorrow = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1));
+  return Math.max(60, Math.ceil((tomorrow - date) / 1000));
 }
 
 function header(event, name) {
