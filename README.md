@@ -2,7 +2,7 @@
 
 > A dependency-free, installable workout & nutrition tracker that builds a training plan around **your** goal, schedule, and equipment — then adapts as you progress.
 
-Tempo is a mobile-first **PWA** with **no frameworks, no backend, and no accounts**. Everything runs in the browser, works offline, and your data never leaves your device.
+Tempo is a mobile-first **PWA** with **no frameworks and no accounts**. Core tracking runs in the browser, works offline, and stores data locally. An optional AI coach uses a Netlify Function when enabled.
 
 ## Features
 
@@ -10,15 +10,16 @@ Tempo is a mobile-first **PWA** with **no frameworks, no backend, and no account
 - **📈 Auto-progression** — reads your logged history and prescribes the next session's load and reps using double progression, with deload detection and rep/time variants for bands and planks.
 - **🔁 Fully customizable** — swap any exercise for a same-pattern alternative, add/remove sets, add or remove exercises, and reshape your week — all of it persists to your plan.
 - **🍽️ Preference-based meal plans** — sex-aware calorie & macro targets (Mifflin-St Jeor + activity, with safe-calorie and essential-fat floors), then **generates each meal from a tagged food database filtered to your diet, preferred proteins/carbs, and allergens** — scaling portions to hit your macros (no LLM, no network). Schedules meal times around your sleep/wake and tracks water.
-- **🔄 Adaptive** — recalibrates your calorie target from your weight trend and flags when you've hit your goal.
+- **🔄 Adaptive** — recalibrates your calorie target from your weight trend, flags when you've hit your goal, and can request an optional AI coach review of recent diet, workout, and weight trends.
 - **📊 Progress tracking** — weight/waist log, trend chart, moving average, and an ETA to your target.
 - **📱 Mobile-first UI** — stepped setup wizard, bottom tab bar, safe-area aware, large touch targets, dark/light theme, rest timer with audio + vibration.
 - **📲 Installable & offline** — a full PWA: add it to your home screen and it launches full-screen and runs offline (service-worker app-shell cache).
-- **🔒 Private by default** — data lives in `localStorage`; a strict Content-Security-Policy allows only same-origin requests. Export/import JSON backups anytime.
+- **🔒 Private by default** — data lives in `localStorage`; the AI coach sends a compact recent snapshot only when you tap **Analyze progress**. Export/import JSON backups anytime.
 
 ## Tech stack
 
 - **Vanilla JavaScript** (ES modules), HTML, and CSS — **no build step, no dependencies, no npm install**.
+- Optional Netlify Function for AI coach reviews.
 - State persisted to `localStorage` with JSON export/import.
 - Client-side routing via the History API (clean `/workout`-style URLs).
 - **PWA** — web app manifest + service worker (offline app-shell cache), no install libraries.
@@ -33,7 +34,7 @@ python3 serve.py 8753
 # open http://localhost:8753
 ```
 
-`serve.py` is a tiny stdlib-only dev server that adds no-cache headers and an SPA fallback so deep links like `/workout` work on refresh. Any static server works, but with plain `python3 -m http.server` refreshing a deep link will 404.
+`serve.py` is a tiny stdlib-only dev server that adds no-cache headers and an SPA fallback so deep links like `/workout` work on refresh. Any static server works, but with plain `python3 -m http.server` refreshing a deep link will 404. The optional AI coach button requires Netlify Functions, so it only runs on the deployed Netlify site or a Netlify local dev server.
 
 There is nothing to build or install.
 
@@ -55,6 +56,7 @@ Once installed it launches full-screen and works offline — the app shell and y
 | Exercise library (equipment-tagged) | [`data/exercises.js`](data/exercises.js) |
 | Auto-progression engine | [`lib/progression.js`](lib/progression.js) |
 | Calorie recalibration & goal detection | [`lib/adaptations.js`](lib/adaptations.js) |
+| Optional AI coach snapshot/apply flow | [`lib/coach.js`](lib/coach.js), [`netlify/functions/coach.js`](netlify/functions/coach.js) |
 | Offline cache | [`sw.js`](sw.js) |
 | Storage / backup | [`storage.js`](storage.js) |
 | Routing + shell | [`app.js`](app.js), [`index.html`](index.html) |
@@ -73,6 +75,7 @@ Once installed it launches full-screen and works offline — the app shell and y
 ├── icon-512.png          # PWA / maskable icon
 ├── serve.py              # Dev server (no-cache + SPA fallback)
 ├── netlify.toml          # Static deploy config + SPA redirect
+├── netlify/functions/    # Optional AI coach function
 ├── _headers              # Security headers (CSP, HSTS, etc.)
 ├── data/
 │   ├── exercises.js      # Exercise library + treadmill cardio blocks
@@ -99,11 +102,20 @@ Once installed it launches full-screen and works offline — the app shell and y
 
 ## Deployment
 
-The app is fully static. The included [`netlify.toml`](netlify.toml) and [`_headers`](_headers) configure a strict CSP and the `/* → /index.html` redirect that makes clean URLs work in production. Deploy by connecting the repo to Netlify (or dragging the folder into the Netlify dashboard). It will work on any static host that can fall back to `index.html` for unknown paths and serves over HTTPS (required for PWA install + service workers).
+The app is still served as static files. The included [`netlify.toml`](netlify.toml) and [`_headers`](_headers) configure the function directory, strict CSP, and the `/* → /index.html` redirect that makes clean URLs work in production. Deploy by connecting the repo to Netlify.
+
+Netlify settings:
+
+- Build command: leave blank
+- Publish directory: `.`
+- Function directory: handled by `netlify.toml`
+- Environment variables: set `OPENAI_API_KEY` to enable **Coach review**. Optional: set `OPENAI_MODEL` to choose the model; otherwise the function uses `gpt-4.1-mini`.
+
+If `OPENAI_API_KEY` is missing, invalid, out of quota, rate-limited, or OpenAI is unavailable, the coach review shows a friendly unavailable message and applies no changes. Meal tracking, workouts, progress logging, offline PWA behavior, and the deterministic adaptation engine continue to work.
 
 ## Data & privacy
 
-All data is stored in your browser's `localStorage` — there is no server and no analytics. The Content-Security-Policy in [`_headers`](_headers) restricts `connect-src` to `'self'` (same-origin only, used by the offline cache), so the app makes no external network requests. Use **Progress → Backup** to export/import a JSON snapshot (recommended before clearing browser data).
+Core data is stored in your browser's `localStorage` and there are no accounts or analytics. The AI coach is opt-in per review: when you tap **Analyze progress**, the app sends a compact recent snapshot to the same-origin Netlify Function, which calls OpenAI using the server-side `OPENAI_API_KEY`. Use **Progress → Backup** to export/import a JSON snapshot (recommended before clearing browser data).
 
 ## Disclaimer
 

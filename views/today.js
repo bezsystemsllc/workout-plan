@@ -4,7 +4,9 @@ import { getMeals } from "../lib/meals.js";
 import { dailyMotivation, greeting } from "../data/motivation.js";
 import { waterTargetMl, mlToOz, mealTimes, fmtTime12, toMin, pct, barClass } from "../lib/calc.js";
 import { getActiveSuggestions, dismissSuggestion } from "../lib/adaptations.js";
+import { applyCoachRecommendation, latestCoachReview, requestCoachReview } from "../lib/coach.js";
 import { esc } from "../lib/html.js";
+import { confirmAction, notify, toast } from "../lib/modal.js";
 import { load, todayISO, weekdayKey } from "../storage.js";
 import { navigate } from "../app.js";
 
@@ -24,6 +26,7 @@ export function renderToday(root) {
   const MEALS = getMeals(settings);
   const consumed = computeConsumed(mealsState, MEALS);
   const suggestions = getActiveSuggestions();
+  const coachReview = latestCoachReview();
   const times = mealTimes(settings.profile?.wakeTime, settings.profile?.sleepTime);
   const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
   const nextMeal = MEALS
@@ -38,6 +41,16 @@ export function renderToday(root) {
       <p class="welcome-quote">${dailyMotivation()}</p>
     </section>
     ${suggestions.map(renderSuggestion).join("")}
+    <section class="card">
+      <div class="spread">
+        <h2 style="margin:0">Coach review</h2>
+        <span class="muted small">AI</span>
+      </div>
+      <p class="hint">Recent trend check for diet, workouts, and weight.</p>
+      <button class="ghost" id="coach-review" style="margin-top:10px;width:100%">Analyze progress</button>
+      ${coachReview ? renderCoachReviewSummary(coachReview) : ""}
+    </section>
+
     <section class="card">
       <h2>${esc(split.label)}</h2>
       ${renderTrainingSummary(split, plan.workouts)}
@@ -78,6 +91,32 @@ export function renderToday(root) {
 
   root.querySelector("#go-meals")?.addEventListener("click", () => navigate("meals"));
   root.querySelector("#go-workout")?.addEventListener("click", () => navigate("workout"));
+  root.querySelector("#coach-review")?.addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    const previousLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Analyzing...";
+    try {
+      const rec = await requestCoachReview();
+      const ok = await confirmAction(formatCoachReview(rec), {
+        title: "Coach review",
+        okLabel: "Apply safe changes",
+      });
+      if (!ok) return;
+      const applied = applyCoachRecommendation(rec);
+      toast(applied.targetChanged
+        ? `Updated targets to ${applied.targets.kcal} kcal`
+        : "Saved coach workout notes");
+      renderToday(root);
+    } catch (err) {
+      await notify(err.message || "Coach review failed.", { title: "Coach unavailable" });
+    } finally {
+      if (document.contains(btn)) {
+        btn.disabled = false;
+        btn.textContent = previousLabel;
+      }
+    }
+  });
 
   for (const btn of root.querySelectorAll("button[data-sugg-apply]")) {
     btn.addEventListener("click", () => {
@@ -92,6 +131,75 @@ export function renderToday(root) {
       renderToday(root);
     });
   }
+}
+
+function formatCoachReview(rec) {
+  const diet = rec.dietAdjustment;
+  const lines = [
+    rec.summary,
+    "",
+    `Diet: ${formatSigned(diet.kcalDelta, "kcal")}, ${formatSigned(diet.proteinDelta, "g protein")}`,
+    diet.reason,
+  ];
+
+  if (rec.workoutAdjustments.length) {
+    lines.push("", "Workout:");
+    for (const item of rec.workoutAdjustments) {
+      lines.push(`- ${item.exercise}: ${actionLabel(item.action)} — ${item.target}`);
+      lines.push(`  ${item.reason}`);
+    }
+  } else {
+    lines.push("", "Workout: hold current plan.");
+  }
+
+  if (rec.riskFlags.length) {
+    lines.push("", "Safety flags:");
+    for (const flag of rec.riskFlags) lines.push(`- ${flag}`);
+  }
+
+  lines.push("", rec.userMessage);
+  lines.push("", "Accepting applies calorie/protein target changes and saves the workout notes.");
+  return lines.join("\n");
+}
+
+function formatSigned(value, unit) {
+  const n = Number(value) || 0;
+  if (!n) return unit.includes("protein") ? "no protein change" : "no calorie change";
+  return `${n > 0 ? "+" : ""}${n} ${unit}`;
+}
+
+function actionLabel(action) {
+  return {
+    increase_reps: "increase reps",
+    increase_load: "increase load",
+    hold: "hold",
+    deload: "deload",
+    swap: "swap",
+    rest: "rest",
+  }[action] || "hold";
+}
+
+function renderCoachReviewSummary(review) {
+  const notes = review.workoutNotes.slice(0, 2);
+  return `
+    <div class="next-meal">
+      <span class="muted small">Latest review${review.ts ? ` · ${esc(new Date(review.ts).toLocaleDateString())}` : ""}</span>
+      <div><b>${esc(review.summary)}</b></div>
+      ${review.targets ? `<div class="hint">Targets: ${esc(review.targets.kcal)} kcal, ${esc(review.targets.p)}g protein</div>` : ""}
+      ${notes.length ? `
+        <ul class="today-ex-list" style="margin-top:8px">
+          ${notes.map((note) => `
+            <li>
+              <div style="flex:1">
+                <div><b>${esc(note.exercise)}</b></div>
+                <div class="meta">${esc(actionLabel(note.action))}: ${esc(note.target)}</div>
+              </div>
+            </li>
+          `).join("")}
+        </ul>
+      ` : ""}
+    </div>
+  `;
 }
 
 function renderSuggestion(s) {

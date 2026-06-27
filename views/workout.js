@@ -1,6 +1,7 @@
 import { getActivePlan, alternativesFor, prescribeExercise, DAY_LABEL, DEFAULT_PREFS } from "../lib/plan.js";
 import { EXERCISES, exercisesFor } from "../data/exercises.js";
 import { iconFor, demoLink } from "../data/exercise-icons.js";
+import { coachNoteForExercise, latestCoachReview } from "../lib/coach.js";
 import { buildProgressionHistory, progressionFor, sessionsForDay } from "../lib/progression.js";
 import { confirmAction, toast } from "../lib/modal.js";
 import { dateNavHtml, wireDateNav } from "../lib/date-nav.js";
@@ -79,6 +80,7 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
   const daySessions = sessionsForDay(day, allWorkouts);
   const lastSession = daySessions.find(s => s.date !== dateKey) || null;
   const progressionHistory = buildProgressionHistory(day, allWorkouts, daySessions);
+  const coachReview = latestCoachReview();
 
   const metaByName = Object.fromEntries(template.map(m => [m.name, hydrateExerciseMeta(m)]));
   const session = isLogged
@@ -113,7 +115,19 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
       ${!isToday && split.type !== "lift" ? `<div class="hint" style="margin-top:6px">${esc(split.label)} on this date — logging a lift anyway.</div>` : ""}
     </section>
 
-    ${items.map(it => renderExercise(it.meta, it.logged, lastSession?.exercises?.find(e => e.name === it.meta.name), it.ei, day, allWorkouts, progressionHistory, starterContext, canCustomize, equipment)).join("")}
+    ${items.map(it => renderExercise(
+      it.meta,
+      it.logged,
+      lastSession?.exercises?.find(e => e.name === it.meta.name),
+      it.ei,
+      day,
+      allWorkouts,
+      progressionHistory,
+      starterContext,
+      canCustomize,
+      equipment,
+      coachNoteForExercise(coachReview, it.meta.name),
+    )).join("")}
 
     ${canCustomize ? `
       <section class="card add-ex">
@@ -236,10 +250,13 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
   }
 }
 
-function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, progressionHistory, starterContext, canCustomize, equipment) {
+function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, progressionHistory, starterContext, canCustomize, equipment, coachNote) {
   const lastSets = lastEx?.sets || [];
   const prog = progressionFor(meta, day, allWorkouts, progressionHistory, starterContext);
   const chip = prog.text ? `<div class="overload-hint hint-${esc(prog.kind)}">${PROG_ICON[prog.kind] || "💡"} ${esc(prog.text)}</div>` : "";
+  const coachChip = coachNote
+    ? `<div class="overload-hint hint-hold">Coach: ${esc(coachActionLabel(coachNote.action))} — ${esc(coachNote.target)}. ${esc(coachNote.reason)}</div>`
+    : "";
   const tW = prog.target?.w ?? "";
   const tR = prog.target?.r ?? "";
   const loadInput = loadInputFor(meta);
@@ -267,6 +284,7 @@ function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, progressionH
         </div>
       </div>
       ${chip}
+      ${coachChip}
       <div class="set-row" style="margin-top:8px">
         <span class="idx muted small">#</span>
         <label class="muted small" style="margin:0">${loadInput.label}</label>
@@ -298,6 +316,17 @@ function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, progressionH
 }
 
 const PROG_ICON = { up: "↑", hold: "→", deload: "⤵", new: "•" };
+function coachActionLabel(action) {
+  return {
+    increase_reps: "increase reps",
+    increase_load: "increase load",
+    hold: "hold",
+    deload: "deload",
+    swap: "swap",
+    rest: "rest",
+  }[action] || "hold";
+}
+
 const EXERCISE_ALIASES = {
   "Barbell row": "Barbell bent-over row",
   "Bulgarian split squat (DB)": "Bulgarian split squat",
