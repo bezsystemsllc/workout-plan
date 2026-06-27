@@ -1,4 +1,6 @@
 const ACTIONS = new Set(["increase_reps", "increase_load", "hold", "deload", "swap", "rest"]);
+const RATE_WINDOW_MS = 15 * 60 * 1000;
+const rateBuckets = new Map();
 
 const COACH_SCHEMA = {
   type: "object",
@@ -66,6 +68,9 @@ exports.handler = async (event) => {
     return unavailable(503, "missing_api_key", "AI coach is disabled because OPENAI_API_KEY is not set. The rest of Tempo still works.");
   }
 
+  const originFailure = checkAllowedOrigin(event);
+  if (originFailure) return originFailure;
+
   let body;
   try {
     body = JSON.parse(event.body || "{}");
@@ -80,6 +85,17 @@ exports.handler = async (event) => {
   const snapshotJson = JSON.stringify(body.snapshot);
   if (snapshotJson.length > 50000) {
     return json(413, { error: "Coach snapshot is too large." });
+  }
+
+  const rate = checkRateLimit(clientKey(event));
+  if (!rate.ok) {
+    const retrySeconds = Math.max(1, Math.ceil(rate.retryAfterMs / 1000));
+    return unavailable(
+      429,
+      "coach_rate_limit",
+      `Too many coach reviews. Try again after ${retrySeconds} seconds. No changes were applied.`,
+      String(retrySeconds),
+    );
   }
 
   try {
@@ -129,6 +145,73 @@ exports.handler = async (event) => {
     return unavailable(503, "upstream_unavailable", "AI coach is temporarily unavailable. The rest of Tempo still works.");
   }
 };
+
+function checkAllowedOrigin(event) {
+  const allowed = allowedOrigins();
+  if (!allowed.length) return null;
+  const origin = requestOrigin(event);
+  if (origin && allowed.includes(origin)) return null;
+  return unavailable(403, "origin_not_allowed", "AI coach requests are not allowed from this origin. No changes were applied.");
+}
+
+function allowedOrigins() {
+  return String(process.env.COACH_ALLOWED_ORIGIN || "")
+    .split(",")
+    .map((origin) => origin.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+}
+
+function requestOrigin(event) {
+  const directOrigin = header(event, "origin");
+  if (directOrigin) return directOrigin.replace(/\/$/, "");
+  const referer = header(event, "referer");
+  if (!referer) return "";
+  try {
+    return new URL(referer).origin;
+  } catch {
+    return "";
+  }
+}
+
+function checkRateLimit(key) {
+  const limit = rateLimit();
+  const now = Date.now();
+  for (const [bucketKey, bucket] of rateBuckets) {
+    if (bucket.resetAt <= now) rateBuckets.delete(bucketKey);
+  }
+
+  const current = rateBuckets.get(key) || { count: 0, resetAt: now + RATE_WINDOW_MS };
+  if (current.resetAt <= now) {
+    current.count = 0;
+    current.resetAt = now + RATE_WINDOW_MS;
+  }
+  current.count += 1;
+  rateBuckets.set(key, current);
+
+  return current.count <= limit
+    ? { ok: true }
+    : { ok: false, retryAfterMs: current.resetAt - now };
+}
+
+function rateLimit() {
+  const raw = Number(process.env.COACH_RATE_LIMIT || 8);
+  if (!Number.isFinite(raw)) return 8;
+  return Math.max(1, Math.min(50, Math.round(raw)));
+}
+
+function clientKey(event) {
+  const forwarded = header(event, "x-forwarded-for");
+  return header(event, "x-nf-client-connection-ip")
+    || header(event, "client-ip")
+    || header(event, "x-real-ip")
+    || (forwarded ? forwarded.split(",")[0].trim() : "")
+    || "unknown";
+}
+
+function header(event, name) {
+  const headers = event.headers || {};
+  return headers[name] || headers[name.toLowerCase()] || headers[name.toUpperCase()] || "";
+}
 
 function openAIError(response, payload) {
   const retryAfter = response.headers?.get?.("retry-after") || "";
@@ -225,7 +308,12 @@ function unavailable(statusCode, code, message, retryAfter = "") {
 function json(statusCode, body, headers = {}) {
   return {
     statusCode,
-    headers: { "Content-Type": "application/json", ...headers },
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+      ...headers,
+    },
     body: statusCode === 204 ? "" : JSON.stringify(body),
   };
 }

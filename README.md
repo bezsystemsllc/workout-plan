@@ -110,6 +110,7 @@ Netlify settings:
 - Publish directory: `.`
 - Function directory: handled by `netlify.toml`
 - Environment variables: set `OPENAI_API_KEY` to enable **Coach review**. Optional: set `OPENAI_MODEL` to choose the model; otherwise the function uses `gpt-4.1-mini`.
+- Optional abuse controls: set `COACH_ALLOWED_ORIGIN` to your deployed site origin, such as `https://your-site.netlify.app` or your custom domain, and `COACH_RATE_LIMIT` to the max coach reviews per client per 15 minutes. The default rate limit is `8`.
 
 If `OPENAI_API_KEY` is missing, invalid, out of quota, rate-limited, or OpenAI is unavailable, the coach review shows a friendly unavailable message and applies no changes. Meal tracking, workouts, progress logging, offline PWA behavior, and the deterministic adaptation engine continue to work.
 
