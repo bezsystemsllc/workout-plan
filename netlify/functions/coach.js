@@ -205,6 +205,16 @@ function requestOrigin(event) {
 }
 
 async function checkRateLimit(key) {
+  const supabase = supabaseConfig();
+  if (supabase) {
+    try {
+      return await checkSupabaseRateLimit(supabase, key);
+    } catch (err) {
+      console.error("rate limit store failed", err);
+      return { ok: false, reason: "store_unavailable", retryAfterMs: 60 * 1000 };
+    }
+  }
+
   const upstash = upstashConfig();
   if (upstash) {
     try {
@@ -215,6 +225,40 @@ async function checkRateLimit(key) {
     }
   }
   return checkMemoryRateLimit(key);
+}
+
+async function checkSupabaseRateLimit(supabase, key) {
+  const now = new Date();
+  const windowSeconds = rateWindowSeconds();
+  const windowMs = windowSeconds * 1000;
+  const windowStamp = Math.floor(now.getTime() / windowMs);
+  const windowResetAt = new Date((windowStamp + 1) * windowMs).toISOString();
+  const dailyResetAt = new Date(now.getTime() + secondsUntilTomorrow(now) * 1000).toISOString();
+  const response = await fetchWithTimeout(`${supabase.url}/rest/v1/rpc/tempo_check_rate_limit`, {
+    method: "POST",
+    headers: supabaseRestHeaders(supabase.key),
+    body: JSON.stringify({
+      p_key: key,
+      p_window_bucket: String(windowStamp),
+      p_window_reset_at: windowResetAt,
+      p_daily_bucket: dateStamp(now),
+      p_daily_reset_at: dailyResetAt,
+      p_window_limit: rateLimit(),
+      p_daily_limit: dailyLimit(),
+    }),
+  }, rateLimitTimeoutMs());
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(body?.message || body?.error || `Supabase rate limit failed with ${response.status}`);
+  }
+
+  const result = Array.isArray(body) ? body[0] : body;
+  if (result?.ok === true) return { ok: true };
+  return {
+    ok: false,
+    reason: result?.reason === "daily" ? "daily" : "window",
+    retryAfterMs: Math.max(1000, Number(result?.retryAfterMs ?? result?.retry_after_ms) || 60 * 1000),
+  };
 }
 
 async function checkUpstashRateLimit(upstash, key) {
@@ -330,6 +374,26 @@ function upstashConfig() {
   const url = String(process.env.UPSTASH_REDIS_REST_URL || "").replace(/\/$/, "");
   const token = String(process.env.UPSTASH_REDIS_REST_TOKEN || "");
   return url && token ? { url, token } : null;
+}
+
+function supabaseConfig() {
+  const url = String(process.env.SUPABASE_URL || "").replace(/\/$/, "");
+  const key = String(process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
+  return url && key ? { url, key } : null;
+}
+
+function supabaseRestHeaders(key) {
+  const headers = {
+    "apikey": key,
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+  };
+  if (looksLikeJwt(key)) headers.Authorization = `Bearer ${key}`;
+  return headers;
+}
+
+function looksLikeJwt(value) {
+  return String(value || "").split(".").length === 3;
 }
 
 function dateStamp(date) {

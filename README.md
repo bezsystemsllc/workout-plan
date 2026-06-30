@@ -112,7 +112,8 @@ Netlify settings:
 - Environment import template: copy [`netlify.env.example`](netlify.env.example) to `netlify.env`, fill in real values, then import `netlify.env` into Netlify.
 - Environment variables: set `OPENAI_API_KEY` to enable **Coach review**. Optional: set `OPENAI_MODEL` to choose the model; otherwise the function uses `gpt-4.1-mini`.
 - Abuse controls: coach calls are rate-limited by client IP before any OpenAI call is made. Set `COACH_RATE_LIMIT` for requests per window, `COACH_RATE_WINDOW_SECONDS` for the window size, and `COACH_DAILY_LIMIT` for the daily cap. Defaults: `5` requests per `900` seconds and `20` requests per day.
-- Production rate-limit store: set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` for shared per-IP limits across Netlify function instances. Without these, the function uses an in-memory fallback that is best-effort only on serverless cold starts.
+- Production rate-limit store: Supabase is supported without extra npm dependencies. Run [`supabase-rate-limit.sql`](supabase-rate-limit.sql) in Supabase SQL Editor, then set `SUPABASE_URL` and `SUPABASE_SECRET_KEY` in Netlify. Older Supabase projects can use `SUPABASE_SERVICE_ROLE_KEY` instead of `SUPABASE_SECRET_KEY`.
+- Alternate rate-limit store: set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` if you prefer Upstash Redis. Without Supabase or Upstash, the function uses an in-memory fallback that is best-effort only on serverless cold starts.
 - Optional origin guard: set `COACH_ALLOWED_ORIGIN` to your deployed site origin, such as `https://your-site.netlify.app` or your custom domain. Multiple origins can be comma-separated.
 - Optional privacy hardening: set `RATE_LIMIT_SALT` so IP addresses are hashed before they become rate-limit keys.
 - Optional timeout tuning: set `OPENAI_TIMEOUT_MS` and `RATE_LIMIT_TIMEOUT_MS` if you need different upstream timeouts. Defaults are `12000` ms and `3000` ms.
