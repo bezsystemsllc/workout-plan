@@ -109,6 +109,7 @@ Netlify settings:
 - Build command: leave blank
 - Publish directory: `.`
 - Function directory: handled by `netlify.toml`
+- Environment import template: copy [`netlify.env.example`](netlify.env.example) to `netlify.env`, fill in real values, then import `netlify.env` into Netlify.
 - Environment variables: set `OPENAI_API_KEY` to enable **Coach review**. Optional: set `OPENAI_MODEL` to choose the model; otherwise the function uses `gpt-4.1-mini`.
 - Abuse controls: coach calls are rate-limited by client IP before any OpenAI call is made. Set `COACH_RATE_LIMIT` for requests per window, `COACH_RATE_WINDOW_SECONDS` for the window size, and `COACH_DAILY_LIMIT` for the daily cap. Defaults: `5` requests per `900` seconds and `20` requests per day.
 - Production rate-limit store: set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` for shared per-IP limits across Netlify function instances. Without these, the function uses an in-memory fallback that is best-effort only on serverless cold starts.
