@@ -2,6 +2,8 @@ const crypto = require("node:crypto");
 
 const ACTIONS = new Set(["increase_reps", "increase_load", "hold", "deload", "swap", "rest"]);
 const DEFAULT_RATE_WINDOW_SECONDS = 15 * 60;
+const MAX_BODY_CHARS = 60000;
+const MAX_SNAPSHOT_CHARS = 50000;
 const memoryWindowBuckets = new Map();
 const memoryDailyBuckets = new Map();
 
@@ -74,9 +76,20 @@ exports.handler = async (event) => {
   const originFailure = checkAllowedOrigin(event);
   if (originFailure) return originFailure;
 
+  const rate = await checkRateLimit(clientKey(event));
+  if (!rate.ok) return rateLimitResponse(rate);
+
+  if (event.isBase64Encoded) {
+    return json(415, { error: "Encoded request bodies are not supported." });
+  }
+  const rawBody = typeof event.body === "string" ? event.body : "";
+  if (rawBody.length > MAX_BODY_CHARS) {
+    return json(413, { error: "Coach request is too large." });
+  }
+
   let body;
   try {
-    body = JSON.parse(event.body || "{}");
+    body = JSON.parse(rawBody || "{}");
   } catch {
     return json(400, { error: "Invalid JSON body." });
   }
@@ -86,39 +99,12 @@ exports.handler = async (event) => {
   }
 
   const snapshotJson = JSON.stringify(body.snapshot);
-  if (snapshotJson.length > 50000) {
+  if (snapshotJson.length > MAX_SNAPSHOT_CHARS) {
     return json(413, { error: "Coach snapshot is too large." });
   }
 
-  const rate = await checkRateLimit(clientKey(event));
-  if (!rate.ok) {
-    const retrySeconds = Math.max(1, Math.ceil(rate.retryAfterMs / 1000));
-    if (rate.reason === "daily") {
-      return unavailable(
-        429,
-        "coach_daily_limit",
-        `Daily coach review limit reached. Try again after ${retrySeconds} seconds. No changes were applied.`,
-        String(retrySeconds),
-      );
-    }
-    if (rate.reason === "store_unavailable") {
-      return unavailable(
-        503,
-        "rate_limit_unavailable",
-        "AI coach is temporarily unavailable because rate limiting could not be verified. No changes were applied.",
-        String(retrySeconds),
-      );
-    }
-    return unavailable(
-      429,
-      "coach_rate_limit",
-      `Too many coach reviews. Try again after ${retrySeconds} seconds. No changes were applied.`,
-      String(retrySeconds),
-    );
-  }
-
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await fetchWithTimeout("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
@@ -140,7 +126,7 @@ exports.handler = async (event) => {
         },
         max_output_tokens: 1200,
       }),
-    });
+    }, openAITimeoutMs());
 
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
@@ -164,6 +150,32 @@ exports.handler = async (event) => {
     return unavailable(503, "upstream_unavailable", "AI coach is temporarily unavailable. The rest of Tempo still works.");
   }
 };
+
+function rateLimitResponse(rate) {
+  const retrySeconds = Math.max(1, Math.ceil(rate.retryAfterMs / 1000));
+  if (rate.reason === "daily") {
+    return unavailable(
+      429,
+      "coach_daily_limit",
+      `Daily coach review limit reached. Try again after ${retrySeconds} seconds. No changes were applied.`,
+      String(retrySeconds),
+    );
+  }
+  if (rate.reason === "store_unavailable") {
+    return unavailable(
+      503,
+      "rate_limit_unavailable",
+      "AI coach is temporarily unavailable because rate limiting could not be verified. No changes were applied.",
+      String(retrySeconds),
+    );
+  }
+  return unavailable(
+    429,
+    "coach_rate_limit",
+    `Too many coach reviews. Try again after ${retrySeconds} seconds. No changes were applied.`,
+    String(retrySeconds),
+  );
+}
 
 function checkAllowedOrigin(event) {
   const allowed = allowedOrigins();
@@ -207,11 +219,13 @@ async function checkRateLimit(key) {
 
 async function checkUpstashRateLimit(upstash, key) {
   const now = new Date();
-  const windowKey = `tempo:coach:rl:${key}`;
-  const dailyKey = `tempo:coach:daily:${dateStamp(now)}:${key}`;
   const windowSeconds = rateWindowSeconds();
+  const windowMs = windowSeconds * 1000;
+  const windowStamp = Math.floor(now.getTime() / windowMs);
+  const windowKey = `tempo:coach:rl:${windowStamp}:${key}`;
+  const dailyKey = `tempo:coach:daily:${dateStamp(now)}:${key}`;
   const dailySeconds = secondsUntilTomorrow(now);
-  const response = await fetch(`${upstash.url}/multi-exec`, {
+  const response = await fetchWithTimeout(`${upstash.url}/multi-exec`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${upstash.token}`,
@@ -219,36 +233,38 @@ async function checkUpstashRateLimit(upstash, key) {
     },
     body: JSON.stringify([
       ["INCR", windowKey],
-      ["EXPIRE", windowKey, windowSeconds],
-      ["TTL", windowKey],
+      ["EXPIRE", windowKey, windowSeconds * 2],
       ["INCR", dailyKey],
       ["EXPIRE", dailyKey, dailySeconds],
-      ["TTL", dailyKey],
     ]),
-  });
+  }, rateLimitTimeoutMs());
   const body = await response.json().catch(() => null);
   if (!response.ok || !Array.isArray(body) || body.some((item) => item?.error)) {
     throw new Error(body?.error || `Upstash rate limit failed with ${response.status}`);
   }
 
-  const windowCount = Number(body[0]?.result) || 0;
-  const windowTtl = Math.max(1, Number(body[2]?.result) || windowSeconds);
-  const dailyCount = Number(body[3]?.result) || 0;
-  const dailyTtl = Math.max(1, Number(body[5]?.result) || dailySeconds);
+  const windowCount = Number(commandResult(body[0])) || 0;
+  const dailyCount = Number(commandResult(body[2])) || 0;
+  const windowRetryMs = Math.max(1000, ((windowStamp + 1) * windowMs) - now.getTime());
 
-  if (dailyCount > dailyLimit()) return { ok: false, reason: "daily", retryAfterMs: dailyTtl * 1000 };
-  if (windowCount > rateLimit()) return { ok: false, reason: "window", retryAfterMs: windowTtl * 1000 };
+  if (dailyCount > dailyLimit()) return { ok: false, reason: "daily", retryAfterMs: dailySeconds * 1000 };
+  if (windowCount > rateLimit()) return { ok: false, reason: "window", retryAfterMs: windowRetryMs };
   return { ok: true };
 }
 
 function checkMemoryRateLimit(key) {
   const limit = rateLimit();
   const now = Date.now();
+  const date = new Date(now);
+  const windowMs = rateWindowSeconds() * 1000;
+  const windowStamp = Math.floor(now / windowMs);
+  const windowResetAt = (windowStamp + 1) * windowMs;
+  const dailyResetAt = now + secondsUntilTomorrow(date) * 1000;
   cleanupExpired(memoryWindowBuckets, now);
   cleanupExpired(memoryDailyBuckets, now);
 
-  const window = bumpBucket(memoryWindowBuckets, key, now, rateWindowSeconds() * 1000);
-  const daily = bumpBucket(memoryDailyBuckets, `${dateStamp(new Date())}:${key}`, now, secondsUntilTomorrow(new Date()) * 1000);
+  const window = bumpBucket(memoryWindowBuckets, `${windowStamp}:${key}`, windowResetAt);
+  const daily = bumpBucket(memoryDailyBuckets, `${dateStamp(date)}:${key}`, dailyResetAt);
 
   if (daily.count > dailyLimit()) return { ok: false, reason: "daily", retryAfterMs: daily.resetAt - now };
   return window.count <= limit
@@ -262,33 +278,37 @@ function cleanupExpired(map, now) {
   }
 }
 
-function bumpBucket(map, key, now, ttlMs) {
-  const current = map.get(key) || { count: 0, resetAt: now + ttlMs };
-  if (current.resetAt <= now) {
-    current.count = 0;
-    current.resetAt = now + ttlMs;
-  }
+function bumpBucket(map, key, resetAt) {
+  const current = map.get(key) || { count: 0, resetAt };
   current.count += 1;
   map.set(key, current);
   return current;
 }
 
 function rateLimit() {
-  const raw = Number(process.env.COACH_RATE_LIMIT || 5);
-  if (!Number.isFinite(raw)) return 5;
-  return Math.max(1, Math.min(50, Math.round(raw)));
+  return envNumber("COACH_RATE_LIMIT", 5, 1, 50);
 }
 
 function dailyLimit() {
-  const raw = Number(process.env.COACH_DAILY_LIMIT || 20);
-  if (!Number.isFinite(raw)) return 20;
-  return Math.max(1, Math.min(500, Math.round(raw)));
+  return envNumber("COACH_DAILY_LIMIT", 20, 1, 500);
 }
 
 function rateWindowSeconds() {
-  const raw = Number(process.env.COACH_RATE_WINDOW_SECONDS || DEFAULT_RATE_WINDOW_SECONDS);
-  if (!Number.isFinite(raw)) return DEFAULT_RATE_WINDOW_SECONDS;
-  return Math.max(60, Math.min(3600, Math.round(raw)));
+  return envNumber("COACH_RATE_WINDOW_SECONDS", DEFAULT_RATE_WINDOW_SECONDS, 60, 3600);
+}
+
+function openAITimeoutMs() {
+  return envNumber("OPENAI_TIMEOUT_MS", 12000, 3000, 25000);
+}
+
+function rateLimitTimeoutMs() {
+  return envNumber("RATE_LIMIT_TIMEOUT_MS", 3000, 500, 10000);
+}
+
+function envNumber(name, fallback, min, max) {
+  const raw = Number(process.env[name] || fallback);
+  if (!Number.isFinite(raw)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(raw)));
 }
 
 function clientKey(event) {
@@ -319,6 +339,20 @@ function dateStamp(date) {
 function secondsUntilTomorrow(date) {
   const tomorrow = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1));
   return Math.max(60, Math.ceil((tomorrow - date) / 1000));
+}
+
+function commandResult(item) {
+  return item && typeof item === "object" && "result" in item ? item.result : item;
+}
+
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function header(event, name) {

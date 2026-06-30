@@ -114,6 +114,7 @@ Netlify settings:
 - Production rate-limit store: set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` for shared per-IP limits across Netlify function instances. Without these, the function uses an in-memory fallback that is best-effort only on serverless cold starts.
 - Optional origin guard: set `COACH_ALLOWED_ORIGIN` to your deployed site origin, such as `https://your-site.netlify.app` or your custom domain. Multiple origins can be comma-separated.
 - Optional privacy hardening: set `RATE_LIMIT_SALT` so IP addresses are hashed before they become rate-limit keys.
+- Optional timeout tuning: set `OPENAI_TIMEOUT_MS` and `RATE_LIMIT_TIMEOUT_MS` if you need different upstream timeouts. Defaults are `12000` ms and `3000` ms.
 
 If `OPENAI_API_KEY` is missing, invalid, out of quota, rate-limited, or OpenAI is unavailable, the coach review shows a friendly unavailable message and applies no changes. Meal tracking, workouts, progress logging, offline PWA behavior, and the deterministic adaptation engine continue to work.
 
