@@ -106,6 +106,7 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
   }
 
   const pool = exercisesFor(equipment);
+  const activeSet = findActiveSet(items);
 
   root.innerHTML = `
     ${dateNavHtml(dateKey)}
@@ -115,19 +116,29 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
       ${!isToday && split.type !== "lift" ? `<div class="hint" style="margin-top:6px">${esc(split.label)} on this date — logging a lift anyway.</div>` : ""}
     </section>
 
-    ${items.map(it => renderExercise(
-      it.meta,
-      it.logged,
-      lastSession?.exercises?.find(e => e.name === it.meta.name),
-      it.ei,
-      day,
-      allWorkouts,
-      progressionHistory,
-      starterContext,
-      canCustomize,
-      equipment,
-      coachNoteForExercise(coachReview, it.meta.name),
-    )).join("")}
+    ${renderGuidedSet(activeSet, items, lastSession, day, allWorkouts, progressionHistory, starterContext)}
+
+    <details class="workout-details">
+      <summary>
+        <span>Full workout</span>
+        <span class="muted small">${esc(completedSets(items))}/${esc(totalSets(items))} sets</span>
+      </summary>
+      <div class="workout-details-body">
+        ${items.map(it => renderExercise(
+          it.meta,
+          it.logged,
+          lastSession?.exercises?.find(e => e.name === it.meta.name),
+          it.ei,
+          day,
+          allWorkouts,
+          progressionHistory,
+          starterContext,
+          canCustomize,
+          equipment,
+          coachNoteForExercise(coachReview, it.meta.name),
+        )).join("")}
+      </div>
+    </details>
 
     ${canCustomize ? `
       <section class="card add-ex">
@@ -153,6 +164,29 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
       session.exercises[ei].sets[si][field] = e.target.value;
     });
   }
+
+  root.querySelector("button[data-complete-set]")?.addEventListener("click", () => {
+    if (!activeSet) return;
+    const loadEl = root.querySelector("[data-guide-field='w']");
+    const repsEl = root.querySelector("[data-guide-field='r']");
+    const ei = +loadEl?.dataset.ei;
+    const si = +loadEl?.dataset.si;
+    if (!Number.isInteger(ei) || !Number.isInteger(si) || !session.exercises[ei]?.sets[si]) return;
+
+    session.exercises[ei].sets[si].w = loadEl.value;
+    session.exercises[ei].sets[si].r = repsEl.value;
+    if (!String(repsEl.value).trim()) {
+      toast("Enter reps or time before moving on");
+      repsEl.focus();
+      return;
+    }
+
+    setSession(session);
+    const done = !findActiveSet(itemsAfter(session, items));
+    toast(done ? "Workout complete" : "Set saved");
+    rerender();
+    if (!done) mountTimer(activeSet.meta.rest || 90);
+  });
 
   for (const btn of root.querySelectorAll("button[data-rest]")) {
     btn.addEventListener("click", () => mountTimer(+btn.dataset.rest));
@@ -248,6 +282,67 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
     toast(`Added ${fresh.name}`);
     rerender();
   }
+}
+
+function renderGuidedSet(activeSet, items, lastSession, day, allWorkouts, progressionHistory, starterContext) {
+  const total = totalSets(items);
+  const complete = completedSets(items);
+  if (!activeSet) {
+    return `
+      <section class="card guided-set guided-complete">
+        <div class="spread">
+          <div>
+            <div class="muted small">Workout complete</div>
+            <h2>All sets logged</h2>
+          </div>
+          <span class="guided-progress">${esc(complete)}/${esc(total)}</span>
+        </div>
+      </section>
+    `;
+  }
+
+  const { meta, logged, ei, si } = activeSet;
+  const lastEx = lastSession?.exercises?.find(e => e.name === meta.name);
+  const lastSet = lastEx?.sets?.[si];
+  const prog = progressionFor(meta, day, allWorkouts, progressionHistory, starterContext);
+  const loadInput = loadInputFor(meta);
+  const current = logged.sets[si] || { w: "", r: "" };
+  const targetW = prog.target?.w ?? "";
+  const targetR = prog.target?.r ?? "";
+  const lastLbl = lastSet && (lastSet.w || lastSet.r) ? `${lastSet.w || "-"} x ${lastSet.r || "-"}` : "-";
+  const hasNext = !!nextSetAfter(items, ei, si);
+
+  return `
+    <section class="card guided-set">
+      <div class="guided-top">
+        <div class="ex-title">
+          <span class="ex-icon-wrap">${iconFor(meta.name, meta.category)}</span>
+          <div>
+            <div class="muted small">Set ${esc(si + 1)} of ${esc(logged.sets.length)}</div>
+            <div class="ex-name">${esc(meta.name)}</div>
+          </div>
+        </div>
+        <span class="guided-progress">${esc(complete)}/${esc(total)}</span>
+      </div>
+      ${prog.text ? `<div class="overload-hint hint-${esc(prog.kind)}">${PROG_ICON[prog.kind] || "•"} ${esc(prog.text)}</div>` : ""}
+      <div class="guided-meta">
+        <div><span>Target</span><b>${esc(meta.reps)}</b></div>
+        <div><span>Last</span><b>${esc(lastLbl)}</b></div>
+        <div><span>Rest</span><b>${esc(meta.rest)}s</b></div>
+      </div>
+      <div class="guided-inputs">
+        <label>
+          <span>${esc(loadInput.label)}</span>
+          <input type="${loadInput.type}" inputmode="${loadInput.inputmode}" ${loadInput.type === "number" ? 'step="0.5" min="0"' : ""} data-guide-field="w" data-ei="${ei}" data-si="${si}" data-field="w" value="${esc(current.w)}" placeholder="${esc(targetW || lastSet?.w || "")}" />
+        </label>
+        <label>
+          <span>Reps/time</span>
+          <input type="number" inputmode="numeric" min="0" data-guide-field="r" data-ei="${ei}" data-si="${si}" data-field="r" value="${esc(current.r)}" placeholder="${esc(targetR || lastSet?.r || "")}" />
+        </label>
+      </div>
+      <button class="primary guided-next" data-complete-set>${hasNext ? "Next set" : "Finish workout"}</button>
+    </section>
+  `;
 }
 
 function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, progressionHistory, starterContext, canCustomize, equipment, coachNote) {
@@ -365,6 +460,41 @@ function loadInputFor(meta) {
   if (equip.includes("band")) return { label: "Band", type: "text", inputmode: "text" };
   if (equip.includes("bodyweight") && meta.prog !== "weight") return { label: "Load", type: "text", inputmode: "text" };
   return { label: "Weight", type: "number", inputmode: "decimal" };
+}
+
+function findActiveSet(items) {
+  for (const item of items) {
+    const si = item.logged.sets.findIndex(set => !setComplete(set));
+    if (si >= 0) return { ...item, si };
+  }
+  return null;
+}
+
+function nextSetAfter(items, ei, si) {
+  let found = false;
+  for (const item of items) {
+    for (let i = 0; i < item.logged.sets.length; i++) {
+      if (found && !setComplete(item.logged.sets[i])) return { ...item, si: i };
+      if (item.ei === ei && i === si) found = true;
+    }
+  }
+  return null;
+}
+
+function itemsAfter(session, items) {
+  return items.map(item => ({ ...item, logged: session.exercises[item.ei] || item.logged }));
+}
+
+function completedSets(items) {
+  return items.reduce((sum, item) => sum + item.logged.sets.filter(setComplete).length, 0);
+}
+
+function totalSets(items) {
+  return items.reduce((sum, item) => sum + item.logged.sets.length, 0);
+}
+
+function setComplete(set) {
+  return String(set?.r || "").trim() !== "";
 }
 
 function blankSets(n) { return Array.from({ length: n }, () => ({ w: "", r: "" })); }
