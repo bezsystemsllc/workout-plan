@@ -26,7 +26,7 @@ const ONBOARDING_DEFAULT = {
   sleepTime: "22:30",
 };
 
-export function renderSettings(root, { onboarding = false } = {}) {
+export function renderSettings(root, { onboarding = false, requestedTab = "today" } = {}) {
   const settings = load("settings");
   const isOnboarding = onboarding || !settings.profile;
   const profile = settings.profile || { ...ONBOARDING_DEFAULT };
@@ -148,6 +148,7 @@ export function renderSettings(root, { onboarding = false } = {}) {
         <section class="card">
           <h2>${isOnboarding ? "Welcome 👋" : "Your profile"}</h2>
           <p class="hint">${isOnboarding ? "A few quick steps and we'll build your calorie, macro, and training targets." : "Edit anything, then Save — your targets recalculate."}</p>
+          ${isOnboarding ? `<button class="primary setup-fast-start" id="starter-plan">Start starter workout</button>` : ""}
           <h3>Units</h3>
           <div class="grid-2">
             <button class="${draftUnits === "imperial" ? "primary" : ""}" data-units="imperial">Imperial (lb, ft/in)</button>
@@ -343,6 +344,7 @@ export function renderSettings(root, { onboarding = false } = {}) {
       navigate("workout");
     });
     root.querySelector("#f-reset")?.addEventListener("click", doReset);
+    root.querySelector("#starter-plan")?.addEventListener("click", doStarterPlan);
 
     paintChrome();
     applyTrack(false);
@@ -351,9 +353,23 @@ export function renderSettings(root, { onboarding = false } = {}) {
   async function doSave() {
     const err = validate(draft);
     if (err) { step = 0; rerender(); await notify(err, { title: "Check your inputs" }); return; }
+    saveDraft(draftSplits);
+    toast(isOnboarding ? "All set — let's go." : "Profile updated.");
+    navigate(isOnboarding && requestedTab === "workout" ? "workout" : "today");
+  }
+
+  async function doStarterPlan() {
+    const err = validate(draft);
+    if (err) { await notify(err, { title: "Check your inputs" }); return; }
+    saveDraft(starterSplits());
+    toast("Starter workout ready");
+    navigate("workout");
+  }
+
+  function saveDraft(splits) {
     const targets = computeTargets(draft);
     const targetWeightLb = projectTargetWeightLb(draft);
-    const plan = generatePlan({ ...draftPrefs, splits: draftSplits }, draft, { preserve: settings.plan });
+    const plan = generatePlan({ ...draftPrefs, splits }, draft, { preserve: settings.plan });
     update("settings", (s) => ({
       ...s,
       profile: { ...draft },
@@ -364,8 +380,16 @@ export function renderSettings(root, { onboarding = false } = {}) {
       foodPrefs: { ...draftFood },
       plan,
     }));
-    toast(isOnboarding ? "All set — let's go." : "Profile updated.");
-    navigate("today");
+  }
+
+  function starterSplits() {
+    const splits = { ...draftSplits };
+    const today = weekdayKey(new Date());
+    if (splits[today]?.type !== "lift") {
+      const dayKey = STYLE_OPTIONS[draftPrefs.style].keys[0];
+      splits[today] = { type: "lift", day: dayKey, label: DAY_LABEL[dayKey] || "Workout" };
+    }
+    return splits;
   }
 
   async function doReset() {
@@ -425,4 +449,8 @@ function goalDesc(k) {
     muscle:   "+250 kcal surplus. Build muscle with minimal fat gain.",
     maintain: "Stay at current weight, no body composition change.",
   }[k] || "";
+}
+
+function weekdayKey(date) {
+  return ["sun","mon","tue","wed","thu","fri","sat"][date.getDay()];
 }

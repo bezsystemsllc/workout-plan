@@ -1,6 +1,6 @@
 // Tempo service worker — offline app shell via precache + background refresh.
 // Bump CACHE to ship an update (old caches are purged on activate).
-const CACHE = "tempo-v10";
+const CACHE = "tempo-v11";
 
 const ASSETS = [
   "./",
@@ -59,6 +59,10 @@ self.addEventListener("activate", (e) => {
   );
 });
 
+self.addEventListener("message", (e) => {
+  if (e.data?.type === "SKIP_WAITING") self.skipWaiting();
+});
+
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
@@ -72,9 +76,10 @@ self.addEventListener("fetch", (e) => {
     return;
   }
 
-  // App-shell assets are cache-first; CACHE version bumps pick up changes.
+  // App-shell assets are network-first so deployed fixes reach installed PWAs
+  // promptly, with cached files as the offline fallback.
   if (ASSET_URLS.has(req.url)) {
-    e.respondWith(caches.match(req).then((cached) => cached || fetchAndCache(req)));
+    e.respondWith(fetchAndCache(req).catch(() => caches.match(req)));
     return;
   }
 

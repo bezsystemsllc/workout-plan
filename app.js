@@ -30,7 +30,8 @@ function currentTab() {
 function route() {
   const settings = load("settings");
   const needsOnboarding = !settings.profile;
-  const tab = needsOnboarding ? "settings" : currentTab();
+  const requestedTab = currentTab();
+  const tab = needsOnboarding ? "settings" : requestedTab;
   const def = ROUTES[tab];
   // Hide the tab bar until onboarding is done — otherwise the tabs look
   // clickable but every route is pinned back to Welcome.
@@ -41,7 +42,7 @@ function route() {
   }
   APP.innerHTML = "";
   try {
-    def.render(APP, { onboarding: needsOnboarding });
+    def.render(APP, { onboarding: needsOnboarding, requestedTab });
   } catch (e) {
     console.error("View failed to render:", e);
     APP.innerHTML = `<section class="card"><h2>Something went wrong</h2><p class="hint">The app hit an error rendering this page — your data is safe.</p><button class="primary" id="err-reload" style="width:100%;margin-top:10px">Reload app</button></section>`;
@@ -74,7 +75,26 @@ route();
 
 // Register the service worker for offline use + installability (PWA).
 if ("serviceWorker" in navigator) {
+  let refreshing = false;
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController || refreshing) return;
+    refreshing = true;
+    location.reload();
+  });
+
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch((e) => console.warn("SW registration failed", e));
+    navigator.serviceWorker.register("/sw.js").then((reg) => {
+      reg.update();
+      if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
+      reg.addEventListener("updatefound", () => {
+        const worker = reg.installing;
+        worker?.addEventListener("statechange", () => {
+          if (worker.state === "installed" && navigator.serviceWorker.controller) {
+            worker.postMessage({ type: "SKIP_WAITING" });
+          }
+        });
+      });
+    }).catch((e) => console.warn("SW registration failed", e));
   });
 }
