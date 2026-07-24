@@ -1,4 +1,4 @@
-import { getActivePlan, alternativesFor, prescribeExercise, DAY_LABEL, DEFAULT_PREFS } from "../lib/plan.js";
+import { getActivePlan, alternativesFor, prescribeExercise, dayLabelFor, DEFAULT_PREFS } from "../lib/plan.js";
 import { EXERCISES, exercisesFor } from "../data/exercises.js";
 import { iconFor, demoLink } from "../data/exercise-icons.js";
 import { coachNoteForExercise, latestCoachReview } from "../lib/coach.js";
@@ -48,7 +48,7 @@ function renderPickerView(root, dateKey, split, rerender, plan) {
       <h2>${esc(split.label)}</h2>
       <p class="muted">${esc(split.type === "rest" ? "Rest day — recovery." : (split.detail || "Conditioning day."))} Want to log a lift anyway?</p>
       <div class="grid-2" style="margin-top:8px">
-        ${dayKeys.map(k => `<button data-pick="${esc(k)}">${esc(DAY_LABEL[k] || capitalize(k))}</button>`).join("")}
+        ${dayKeys.map(k => `<button data-pick="${esc(k)}">${esc(dayLabelFor(k))}</button>`).join("")}
       </div>
     </section>
   `;
@@ -76,6 +76,7 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
   const starterContext = {
     profile: settings.profile,
     experience: plan.meta?.experience || settings.trainingPrefs?.experience || "beginner",
+    units: settings.units || "imperial",
   };
   const daySessions = sessionsForDay(day, allWorkouts);
   const lastSession = daySessions.find(s => s.date !== dateKey) || null;
@@ -111,8 +112,8 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
   root.innerHTML = `
     ${dateNavHtml(dateKey)}
     <section class="card">
-      <div class="spread"><h2 style="margin:0">${esc(DAY_LABEL[day] || capitalize(day))}</h2><span class="muted">${esc(dateKey)}</span></div>
-      ${lastSession ? `<div class="hint">Last ${esc(day)} session: ${esc(lastSession.date)}</div>` : `<div class="hint">No prior ${esc(day)} session — set your starting weights.</div>`}
+      <div class="spread"><h2 style="margin:0">${esc(dayLabelFor(day))}</h2><span class="muted">${esc(dateKey)}</span></div>
+      ${lastSession ? `<div class="hint">Last ${esc(dayLabelFor(day))} session: ${esc(lastSession.date)}</div>` : `<div class="hint">No prior ${esc(dayLabelFor(day))} session — set your starting weights.</div>`}
       ${!isToday && split.type !== "lift" ? `<div class="hint" style="margin-top:6px">${esc(split.label)} on this date — logging a lift anyway.</div>` : ""}
     </section>
 
@@ -305,7 +306,7 @@ function renderGuidedSet(activeSet, items, lastSession, day, allWorkouts, progre
   const lastEx = lastSession?.exercises?.find(e => e.name === meta.name);
   const lastSet = lastEx?.sets?.[si];
   const prog = progressionFor(meta, day, allWorkouts, progressionHistory, starterContext);
-  const loadInput = loadInputFor(meta);
+  const loadInput = loadInputFor(meta, starterContext?.units);
   const current = logged.sets[si] || { w: "", r: "" };
   const targetW = prog.target?.w ?? "";
   const targetR = prog.target?.r ?? "";
@@ -354,7 +355,7 @@ function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, progressionH
     : "";
   const tW = prog.target?.w ?? "";
   const tR = prog.target?.r ?? "";
-  const loadInput = loadInputFor(meta);
+  const loadInput = loadInputFor(meta, starterContext?.units);
   const alts = canCustomize ? alternativesFor(meta, equipment) : [];
 
   return `
@@ -455,11 +456,11 @@ function hydrateExerciseMeta(ex) {
   };
 }
 
-function loadInputFor(meta) {
+function loadInputFor(meta, units) {
   const equip = meta.equip || [];
   if (equip.includes("band")) return { label: "Band", type: "text", inputmode: "text" };
   if (equip.includes("bodyweight") && meta.prog !== "weight") return { label: "Load", type: "text", inputmode: "text" };
-  return { label: "Weight", type: "number", inputmode: "decimal" };
+  return { label: `Weight (${units === "metric" ? "kg" : "lb"})`, type: "number", inputmode: "decimal" };
 }
 
 function findActiveSet(items) {
@@ -506,5 +507,3 @@ function weekday(iso) {
   const d = new Date(iso + "T12:00:00");
   return ["sun","mon","tue","wed","thu","fri","sat"][d.getDay()];
 }
-
-function capitalize(s) { return s[0].toUpperCase() + s.slice(1); }

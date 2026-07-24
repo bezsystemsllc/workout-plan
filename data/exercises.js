@@ -60,6 +60,9 @@ export const EXERCISES = [
   E({ id: "ez-skull",       name: "EZ-bar skullcrusher",        category: "push", pattern: "tri-ext",    equip: ["ezbar","bench"],    inc: 2.5, reps: "10–12" }),
   E({ id: "band-pushdown",  name: "Band triceps pushdown",      category: "push", pattern: "tri-ext",    equip: ["band"],             prog: "reps", reps: "15–20" }),
   E({ id: "bench-dip",      name: "Bench dip",                  category: "push", pattern: "tri-ext",    equip: ["bench"],            prog: "reps", reps: "10–15" }),
+  E({ id: "pike-pushup",    name: "Pike push-up",               category: "push", pattern: "vert-press", equip: ["bodyweight"],       compound: true,  prog: "reps", reps: "8–15" }),
+  E({ id: "decline-pushup", name: "Decline push-up (feet up)",  category: "push", pattern: "incline-press", equip: ["bodyweight"],    compound: true,  prog: "reps", reps: "10–20" }),
+  E({ id: "diamond-pushup", name: "Diamond push-up",            category: "push", pattern: "tri-ext",    equip: ["bodyweight"],       prog: "reps", reps: "8–15" }),
 
   // ── PULL ─────────────────────────────────────────────────────────────────
   E({ id: "bb-row",         name: "Barbell bent-over row",      category: "pull", pattern: "row",        equip: ["barbell"],          compound: true,  reps: "6–8" }),
@@ -75,6 +78,8 @@ export const EXERCISES = [
   E({ id: "db-hammer",      name: "Dumbbell hammer curl",       category: "pull", pattern: "curl",       equip: ["dumbbell"],         inc: 2.5, reps: "10–12" }),
   E({ id: "band-curl",      name: "Band biceps curl",           category: "pull", pattern: "curl",       equip: ["band"],             prog: "reps", reps: "15–20" }),
   E({ id: "db-shrug",       name: "Dumbbell shrug",             category: "pull", pattern: "shrug",      equip: ["dumbbell"],         reps: "12–15" }),
+  E({ id: "inv-row",        name: "Inverted row (table/bar)",   category: "pull", pattern: "row",        equip: ["bodyweight"],       compound: true,  prog: "reps", reps: "8–15" }),
+  E({ id: "superman",       name: "Superman hold",              category: "pull", pattern: "rear-delt",  equip: ["bodyweight"],       prog: "time", reps: "20–40s" }),
 
   // ── LEGS ─────────────────────────────────────────────────────────────────
   E({ id: "db-goblet",      name: "Goblet squat",               category: "legs", pattern: "squat",      equip: ["dumbbell"],         compound: true,  reps: "10–12" }),
@@ -87,6 +92,8 @@ export const EXERCISES = [
   E({ id: "db-stepup",      name: "Dumbbell step-up",           category: "legs", pattern: "lunge",      equip: ["dumbbell","bench"], compound: true,  reps: "10/leg" }),
   E({ id: "db-calf",        name: "Dumbbell calf raise",        category: "legs", pattern: "calf",       equip: ["dumbbell"],         reps: "15–20" }),
   E({ id: "bw-calf",        name: "Standing calf raise",        category: "legs", pattern: "calf",       equip: ["bodyweight"],       prog: "reps", reps: "20–25" }),
+  E({ id: "glute-bridge",   name: "Glute bridge",               category: "legs", pattern: "hinge",      equip: ["bodyweight"],       compound: true,  prog: "reps", reps: "15–20" }),
+  E({ id: "rev-lunge",      name: "Reverse lunge",              category: "legs", pattern: "lunge",      equip: ["bodyweight"],       compound: true,  prog: "reps", reps: "12/leg" }),
 
   // ── CORE ─────────────────────────────────────────────────────────────────
   E({ id: "plank",          name: "Plank",                      category: "core", pattern: "core-iso",   equip: ["bodyweight"],       prog: "time", reps: "30–60s" }),
@@ -96,6 +103,7 @@ export const EXERCISES = [
   E({ id: "band-crunch",    name: "Band crunch",                category: "core", pattern: "core-flex",  equip: ["band"],             prog: "reps", reps: "15–20" }),
   E({ id: "dead-bug",       name: "Dead bug",                   category: "core", pattern: "core-iso",   equip: ["bodyweight"],       prog: "reps", reps: "10/side" }),
   E({ id: "bicycle",        name: "Bicycle crunch",             category: "core", pattern: "core-rot",   equip: ["bodyweight"],       prog: "reps", reps: "15/side" }),
+  E({ id: "side-plank",     name: "Side plank",                 category: "core", pattern: "core-iso",   equip: ["bodyweight"],       prog: "time", reps: "20–40s/side" }),
 
   // ── GYM: barbell rack, machines, cables, pull-up bar ──────────────────────
   E({ id: "bb-ohp",         name: "Barbell overhead press",     category: "push", pattern: "vert-press", equip: ["barbell"],          compound: true,  reps: "6–8" }),

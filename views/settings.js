@@ -5,7 +5,7 @@ import {
 } from "../lib/calc.js";
 import {
   generatePlan, buildSplits, DEFAULT_PREFS, STYLE_OPTIONS, EXPERIENCE,
-  DAY_LABEL, dayFromToken, tokenFromDay,
+  DAY_LABEL, dayLabelFor, dayFromToken, tokenFromDay,
 } from "../lib/plan.js";
 import { EQUIPMENT, EQUIPMENT_PRESETS } from "../data/exercises.js";
 import { DIETS, PROTEIN_GROUPS, CARB_GROUPS, ALLERGENS, proteinGroupsForDiet } from "../data/foods.js";
@@ -85,7 +85,11 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
   // Weekly-layout editor — its own wizard step so the Training step stays light.
   function layoutCard() {
     const liftKeys = STYLE_OPTIONS[draftPrefs.style].keys;
-    const dayOptions = [["rest", "Rest"], ["cardio", "Cardio"], ...liftKeys.map(k => [`lift:${k}`, DAY_LABEL[k]])];
+    // Offer A and B variants of each split day; C only when the generated
+    // layout already uses it (e.g. 5-day upper/lower).
+    const inUse = new Set(Object.values(draftSplits).filter(s => s.type === "lift").map(s => s.day));
+    const variantKeys = liftKeys.flatMap(k => [k, `${k}-b`, ...(inUse.has(`${k}-c`) ? [`${k}-c`] : [])]);
+    const dayOptions = [["rest", "Rest"], ["cardio", "Cardio"], ...variantKeys.map(k => [`lift:${k}`, dayLabelFor(k)])];
     return `
       <section class="card">
         <h2>Weekly layout</h2>
@@ -369,7 +373,10 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
   function saveDraft(splits) {
     const targets = computeTargets(draft);
     const targetWeightLb = projectTargetWeightLb(draft);
-    const plan = generatePlan({ ...draftPrefs, splits }, draft, { preserve: settings.plan });
+    // Keep the existing seed so re-saving settings doesn't reshuffle exercises;
+    // first-time plans get a random seed so each user's plan feels their own.
+    const seed = settings.plan?.meta?.seed ?? Math.floor(Math.random() * 1000000);
+    const plan = generatePlan({ ...draftPrefs, splits }, draft, { preserve: settings.plan, seed });
     update("settings", (s) => ({
       ...s,
       profile: { ...draft },
