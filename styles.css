@@ -287,6 +287,25 @@ body.modal-open { overflow: hidden; }
 .coach-advice li { margin-bottom: 8px; }
 .coach-advice .coach-why { display: block; margin-top: 2px; }
 .coach-msg { margin: 16px 0 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+/* Photo-log draft: one editable row per recognized food. */
+.photo-item {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px; margin-bottom: 8px;
+}
+.photo-item-head { display: flex; gap: 10px; align-items: flex-start; margin: 0; }
+.photo-item-head input[type="checkbox"] {
+  width: 20px; height: 20px; margin: 1px 0 0; flex-shrink: 0; accent-color: var(--accent);
+}
+.photo-item-head > span { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.photo-macros { display: grid; grid-template-columns: 1.3fr 1fr 1fr 1fr; gap: 6px; margin-top: 10px; }
+.photo-macros label { display: flex; flex-direction: column; gap: 2px; margin: 0; }
+.photo-macros span { font-size: 11px; color: var(--muted); }
+.photo-macros input { min-height: 40px; padding: 6px 8px; text-align: center; }
+.conf { font-weight: 600; }
+.conf-high { color: var(--accent); }
+.conf-medium { color: var(--warn); }
+.conf-low { color: var(--danger); }
 .modal-buttons button { min-width: 80px; }
 .modal-buttons button.danger { background: var(--danger); border-color: var(--danger); color: white; }
 

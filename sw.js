@@ -1,6 +1,6 @@
 // Tempo service worker — offline app shell via precache + background refresh.
 // Bump CACHE to ship an update (old caches are purged on activate).
-const CACHE = "tempo-v16";
+const CACHE = "tempo-v17";
 
 const ASSETS = [
   "./",
@@ -23,6 +23,8 @@ const ASSETS = [
   "./lib/adaptations.js",
   "./lib/coach.js",
   "./lib/coach-contract.js",
+  "./lib/openai.js",
+  "./lib/meal-photo.js",
   "./lib/calc.js",
   "./lib/modal.js",
   "./lib/date-nav.js",

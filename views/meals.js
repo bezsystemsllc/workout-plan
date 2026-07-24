@@ -1,10 +1,11 @@
 import { getMeals } from "../lib/meals.js";
 import { getActivePlan } from "../lib/plan.js";
-import { load, update, todayISO } from "../storage.js";
+import { load, loadApiKey, update, todayISO } from "../storage.js";
 import { waterTargetMl, mlToOz, mealTimes, fmtTime12, toMin, pct, barClass } from "../lib/calc.js";
 import { dateNavHtml, wireDateNav } from "../lib/date-nav.js";
 import { esc } from "../lib/html.js";
-import { notify, toast } from "../lib/modal.js";
+import { confirmForm, notify, toast } from "../lib/modal.js";
+import { analyzeMealPhoto } from "../lib/meal-photo.js";
 
 export function renderMeals(root) {
   const today = todayISO();
@@ -26,6 +27,19 @@ export function renderMeals(root) {
     const s = all[viewedDate] || { checked: [], custom: [], waterMl: 0 };
     if (s.waterMl == null) s.waterMl = 0;
     return s;
+  }
+
+  // Photo logging runs on the user's own key only — the image goes straight to
+  // OpenAI from this device and is never stored.
+  function photoCardHtml() {
+    if (!loadApiKey()) {
+      return `<p class="hint" style="margin-top:10px">📷 Want to log a meal from a photo? Add your own OpenAI key in Settings — the photo goes straight to OpenAI from this device and is never saved.</p>`;
+    }
+    return `
+      <button class="ghost" id="photo-log" style="width:100%;margin-top:10px">📷 Log from a photo</button>
+      <input type="file" id="photo-input" accept="image/*" capture="environment" hidden />
+      <p class="hint">Estimated from the photo — check the numbers before adding. Portion size from a photo is a guess.</p>
+    `;
   }
 
   function setState(next) {
@@ -139,6 +153,7 @@ export function renderMeals(root) {
               </tbody>
             </table>
           `}
+        ${photoCardHtml()}
         ${savedFoods.length ? `
           <label style="margin-top:10px">Quick-add from My Foods</label>
           <div class="row" style="gap:8px">
@@ -256,7 +271,84 @@ export function renderMeals(root) {
       toast(`Added ${name}${qty !== 1 ? ` ×${qty}` : ""}`);
       render();
     });
+
+    const photoInput = root.querySelector("#photo-input");
+    root.querySelector("#photo-log")?.addEventListener("click", () => photoInput?.click());
+    photoInput?.addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      e.target.value = ""; // let the same photo be picked again after a cancel
+      if (!file) return;
+
+      const btn = root.querySelector("#photo-log");
+      const label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Reading photo…";
+      let result;
+      try {
+        result = await analyzeMealPhoto(loadApiKey(), file);
+      } catch (err) {
+        await notify(err.message || "Couldn't read that photo.", { title: "Photo not analyzed" });
+        return;
+      } finally {
+        if (document.contains(btn)) { btn.disabled = false; btn.textContent = label; }
+      }
+
+      if (!result.items.length) {
+        await notify(result.note || "No food was recognized in that photo. Try a clearer, closer shot.", { title: "Nothing to add" });
+        return;
+      }
+
+      const chosen = await confirmForm(photoReviewHtml(result), {
+        title: "Add from photo",
+        okLabel: "Add selected",
+        collect: (wrap) => [...wrap.querySelectorAll("[data-item-row]")]
+          .filter((row) => row.querySelector("input[type=checkbox]").checked)
+          .map((row) => ({
+            name: row.dataset.name,
+            kcal: Math.max(1, Math.round(+row.querySelector("[data-f=kcal]").value || 0)),
+            p: Math.max(0, Math.round(+row.querySelector("[data-f=p]").value || 0)),
+            f: Math.max(0, Math.round(+row.querySelector("[data-f=f]").value || 0)),
+            c: Math.max(0, Math.round(+row.querySelector("[data-f=c]").value || 0)),
+          })),
+      });
+      if (!chosen || !chosen.length) return;
+
+      const s = getState();
+      for (const item of chosen) s.custom.push(item);
+      setState(s);
+      toast(`Added ${chosen.length} item${chosen.length > 1 ? "s" : ""} from photo`);
+      render();
+    });
   }
 
   render();
+}
+
+// Draft from the photo: every item editable and opt-out-able, with the model's
+// own confidence shown so a guessed portion isn't mistaken for a measurement.
+function photoReviewHtml(result) {
+  const rows = result.items.map((item, i) => `
+    <div class="photo-item" data-item-row data-name="${esc(item.name)}">
+      <label class="photo-item-head">
+        <input type="checkbox" ${item.confidence === "low" ? "" : "checked"} />
+        <span>
+          <b>${esc(item.name)}</b>
+          <span class="coach-why">${esc(item.portion)}${item.portion ? " · " : ""}<span class="conf conf-${esc(item.confidence)}">${esc(item.confidence)} confidence</span></span>
+        </span>
+      </label>
+      <div class="photo-macros">
+        <label><span>kcal</span><input type="number" inputmode="numeric" min="0" data-f="kcal" value="${esc(item.kcal)}" /></label>
+        <label><span>P</span><input type="number" inputmode="numeric" min="0" data-f="p" value="${esc(item.p)}" /></label>
+        <label><span>F</span><input type="number" inputmode="numeric" min="0" data-f="f" value="${esc(item.f)}" /></label>
+        <label><span>C</span><input type="number" inputmode="numeric" min="0" data-f="c" value="${esc(item.c)}" /></label>
+      </div>
+    </div>
+  `).join("");
+
+  return `
+    <p class="hint" style="margin-top:0">Estimated from your photo. Portion size is the least reliable part — correct anything that looks off before adding. Low-confidence items start unticked.</p>
+    ${rows}
+    ${result.note ? `<p class="coach-why">${esc(result.note)}</p>` : ""}
+    <p class="coach-why">The photo was not saved.</p>
+  `;
 }

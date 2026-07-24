@@ -9,6 +9,7 @@ Tempo is a mobile-first **PWA** with **no frameworks and no accounts**. Core tra
 - **🧠 Dynamic workout plans** — generates a weekly split and exercise selection from your goal, days per week, experience level, and the equipment you actually own (dumbbells, kettlebells, barbell + rack, machines, cables, pull-up bar, bands, bench, treadmill, or just bodyweight). When a split day repeats in your week it becomes distinct A/B (and C) sessions with different exercises, selection is seeded per user so no two plans look alike, and **Shuffle exercises** rebuilds the whole selection anytime.
 - **📈 Auto-progression** — reads your logged history and prescribes the next session's load and reps using double progression, with deload detection and rep/time variants for bands and planks.
 - **🔁 Fully customizable** — swap any exercise for a same-pattern alternative, add/remove sets, add or remove exercises, and reshape your week — all of it persists to your plan.
+- **📷 Log a meal from a photo** — snap your plate and the foods and macros are estimated for you, as an editable draft you confirm rather than a silent auto-log (portion size from a flat photo is the least reliable part, so low-confidence items start unticked). Requires your own OpenAI key: the photo goes straight from your device to OpenAI, never through this site's server, and is never stored — only the numbers you accept are saved.
 - **🍽️ Preference-based meal plans** — sex-aware calorie & macro targets (Mifflin-St Jeor + activity, with safe-calorie and essential-fat floors), then **generates each meal from a tagged food database filtered to your diet, preferred proteins/carbs, and allergens** — scaling portions to hit your macros (no LLM, no network). Schedules meal times around your sleep/wake and tracks water.
 - **🔄 Adaptive** — recalibrates your calorie target from your weight trend, flags when you've hit your goal, and can request an optional AI coach review of recent diet, workout, and weight trends. The review shows exactly what would change and lets you accept each item individually: calorie/macro targets (which regenerate your meals) and exercise swaps. Load and rep advice stays advisory — the deterministic progression engine owns those, since it reads your actual logged sets.
 - **📊 Progress tracking** — weight/waist log, trend chart, moving average, and an ETA to your target.
@@ -57,6 +58,7 @@ Once installed it launches full-screen and works offline — the app shell and y
 | Auto-progression engine | [`lib/progression.js`](lib/progression.js) |
 | Calorie recalibration & goal detection | [`lib/adaptations.js`](lib/adaptations.js) |
 | Optional AI coach snapshot/apply flow | [`lib/coach.js`](lib/coach.js), [`netlify/functions/coach.js`](netlify/functions/coach.js) |
+| Photo meal logging (own key, direct to OpenAI) | [`lib/meal-photo.js`](lib/meal-photo.js), [`lib/openai.js`](lib/openai.js) |
 | Offline cache | [`sw.js`](sw.js) |
 | Storage / backup | [`storage.js`](storage.js) |
 | Routing + shell | [`app.js`](app.js), [`index.html`](index.html) |
