@@ -230,21 +230,32 @@ body.onboarding { padding-bottom: env(safe-area-inset-bottom); }
   position: fixed; inset: 0; z-index: 40;
   background: rgba(0, 0, 0, 0.55);
   display: flex; align-items: center; justify-content: center;
-  padding: 20px;
+  /* Clear the notch and home indicator so a full-height sheet stays reachable. */
+  padding: calc(20px + env(safe-area-inset-top, 0px)) 20px calc(20px + env(safe-area-inset-bottom, 0px));
   animation: fade-in 140ms ease-out;
 }
+/* Column layout so a long body (a coach review) scrolls on its own while the
+   title and buttons stay pinned and reachable on a phone. */
 .modal-panel {
   background: var(--surface); color: var(--text);
   border: 1px solid var(--border); border-radius: 14px;
   padding: 20px; max-width: 380px; width: 100%;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
   animation: pop-in 160ms ease-out;
+  display: flex; flex-direction: column;
+  max-height: 100%; min-height: 0;
 }
-.modal-title { font-weight: 700; font-size: 16px; margin-bottom: 8px; }
-.modal-message { font-size: 14px; line-height: 1.5; color: var(--text); white-space: pre-wrap; }
+.modal-title { font-weight: 700; font-size: 16px; margin-bottom: 8px; flex: 0 0 auto; }
+.modal-message {
+  font-size: 14px; line-height: 1.5; color: var(--text); white-space: pre-wrap;
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+}
 .modal-buttons {
-  display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px;
+  display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; flex: 0 0 auto;
 }
+/* Stop the page behind the sheet from scrolling with it. */
+body.modal-open { overflow: hidden; }
 .modal-buttons button { min-width: 80px; }
 .modal-buttons button.danger { background: var(--danger); border-color: var(--danger); color: white; }
 
