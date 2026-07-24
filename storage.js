@@ -42,17 +42,35 @@ function readAll() {
         cache[section] = normalizeSection(section, JSON.parse(rawSection));
       } catch (e) {
         console.warn(`storage section ignored: ${section}`, e);
+        // Stash the unreadable section so a later write can't destroy it.
+        try { localStorage.setItem(`${SECTION_KEYS[section]}:recovery`, rawSection); } catch { /* best effort */ }
       }
     }
     rememberSerializedSections();
     if (raw) writeAll();
   } catch (e) {
     console.warn("storage read failed", e);
+    // Stash the unreadable blob so a later write doesn't destroy it permanently.
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (raw) localStorage.setItem(`${KEY}:recovery`, raw);
+    } catch { /* best effort */ }
     cache = structuredClone(DEFAULT_STATE);
     sectionSerialized = {};
     monolithicFallbackActive = false;
   }
   return cache;
+}
+
+// Another tab writing our keys invalidates this tab's in-memory cache, so a
+// later write here can't clobber the other tab's newer data wholesale.
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    if (e.key === null || e.key === KEY || e.key.startsWith(`${KEY}:`)) {
+      cache = null;
+      sectionSerialized = {};
+    }
+  });
 }
 
 function normalizeState(saved, { strict = false } = {}) {
@@ -385,7 +403,9 @@ function safeLoadText(value) {
   if (value == null || value === "") return "";
   const n = Number(value);
   if (Number.isFinite(n) && n >= 0) return String(value).slice(0, 20);
-  return String(value).replace(/[^a-z0-9 .+\-/]/gi, "").trim().slice(0, 40);
+  // Keep free-text loads ("light band", accented words) intact — views escape
+  // on render; only strip markup-relevant and control characters here.
+  return String(value).replace(/[<>&"'\u0000-\u001f]/g, "").trim().slice(0, 40);
 }
 
 function normalizeStringArray(value, maxItems, maxLen) {
@@ -407,7 +427,9 @@ function clampNumber(value, min, max, fallback) {
 
 function isISODate(value) {
   if (!ISO_DATE_RE.test(value)) return false;
-  const d = new Date(value + "T12:00:00");
+  // Round-trip entirely in UTC — a local-time parse breaks for UTC+13/+14
+  // (Auckland DST, Tonga, Kiritimati) and silently drops every dated entry.
+  const d = new Date(value + "T12:00:00Z");
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
 }
 
@@ -498,8 +520,26 @@ export function exportJSON() {
 export function importJSON(text) {
   const parsed = JSON.parse(text);
   ensureBackupShape(parsed);
-  cache = normalizeState(parsed, { strict: true });
-  writeAll();
+  readAll(); // make sure the pre-import state is loaded so we can roll back
+  const next = normalizeState(parsed, { strict: true });
+  const serialized = {};
+  for (const section of TOP_LEVEL_KEYS) serialized[section] = JSON.stringify(next[section]);
+  const previous = { ...sectionSerialized };
+  try {
+    for (const section of TOP_LEVEL_KEYS) localStorage.setItem(SECTION_KEYS[section], serialized[section]);
+    localStorage.removeItem(KEY);
+  } catch (e) {
+    // Roll back any sections already written so storage isn't half old, half new.
+    try {
+      for (const section of TOP_LEVEL_KEYS) {
+        if (previous[section] != null) localStorage.setItem(SECTION_KEYS[section], previous[section]);
+      }
+    } catch { /* rollback is best-effort */ }
+    throw new Error("Couldn't save the imported backup — storage may be full. Your existing data was kept.");
+  }
+  cache = next;
+  sectionSerialized = serialized;
+  monolithicFallbackActive = false;
 }
 
 export function clearStorage() {
@@ -507,7 +547,11 @@ export function clearStorage() {
   sectionSerialized = {};
   monolithicFallbackActive = false;
   localStorage.removeItem(KEY);
-  for (const key of Object.values(SECTION_KEYS)) localStorage.removeItem(key);
+  localStorage.removeItem(`${KEY}:recovery`);
+  for (const key of Object.values(SECTION_KEYS)) {
+    localStorage.removeItem(key);
+    localStorage.removeItem(`${key}:recovery`);
+  }
 }
 
 export function todayISO() {

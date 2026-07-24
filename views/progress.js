@@ -165,7 +165,8 @@ export function renderProgress(root) {
 
 function validISODate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const d = new Date(value + "T12:00:00");
+  // UTC round-trip — a local parse rejects every date in UTC+13/+14 timezones.
+  const d = new Date(value + "T12:00:00Z");
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
 }
 

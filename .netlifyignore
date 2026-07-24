@@ -6,3 +6,7 @@ __pycache__/
 .idea/
 *.backup.json
 cut-to-abs-*.json
+# Local env template — must never reach the publish root with real values.
+netlify.env
+netlify.env.example
+tempo-*.json

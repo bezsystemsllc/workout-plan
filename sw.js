@@ -1,6 +1,6 @@
 // Tempo service worker — offline app shell via precache + background refresh.
 // Bump CACHE to ship an update (old caches are purged on activate).
-const CACHE = "tempo-v11";
+const CACHE = "tempo-v12";
 
 const ASSETS = [
   "./",
@@ -37,7 +37,11 @@ const ASSET_URLS = new Set(ASSETS.map((asset) => new URL(asset, self.location.hr
 
 function fetchAndCache(req, cacheKey = req) {
   return fetch(req).then((res) => {
-    if (res.ok && res.type === "basic") {
+    // When storing under the "./index.html" shell key, only accept real HTML —
+    // otherwise navigating to /icon-192.png offline would replace the app shell.
+    const isShell = cacheKey !== req;
+    const isHtml = (res.headers.get("content-type") || "").includes("text/html");
+    if (res.ok && res.type === "basic" && (!isShell || isHtml)) {
       const copy = res.clone();
       return caches.open(CACHE).then((c) => c.put(cacheKey, copy)).then(() => res);
     }
@@ -45,10 +49,10 @@ function fetchAndCache(req, cacheKey = req) {
   });
 }
 
+// No skipWaiting here: a freshly installed worker waits until the next launch
+// (app.js releases it at load), so updates never reload the app mid-session.
 self.addEventListener("install", (e) => {
-  e.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting())
-  );
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)));
 });
 
 self.addEventListener("activate", (e) => {

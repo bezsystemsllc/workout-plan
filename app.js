@@ -86,15 +86,11 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").then((reg) => {
       reg.update();
+      // A worker already waiting at launch can take over now — nothing has
+      // been typed yet. Workers that finish installing mid-session stay
+      // waiting until the next launch, so an update never reloads the app
+      // under the user's fingers (discarding unsaved set inputs).
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
-      reg.addEventListener("updatefound", () => {
-        const worker = reg.installing;
-        worker?.addEventListener("statechange", () => {
-          if (worker.state === "installed" && navigator.serviceWorker.controller) {
-            worker.postMessage({ type: "SKIP_WAITING" });
-          }
-        });
-      });
     }).catch((e) => console.warn("SW registration failed", e));
   });
 }

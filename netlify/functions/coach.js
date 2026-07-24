@@ -6,6 +6,7 @@ const MAX_BODY_CHARS = 60000;
 const MAX_SNAPSHOT_CHARS = 50000;
 const memoryWindowBuckets = new Map();
 const memoryDailyBuckets = new Map();
+let memoryFallbackWarned = false;
 
 const COACH_SCHEMA = {
   type: "object",
@@ -224,6 +225,10 @@ async function checkRateLimit(key) {
       return { ok: false, reason: "store_unavailable", retryAfterMs: 60 * 1000 };
     }
   }
+  if (!memoryFallbackWarned) {
+    memoryFallbackWarned = true;
+    console.warn("coach: no Supabase/Upstash configured — in-memory rate limiting is per-instance and best-effort only. Configure a durable store for production (see README).");
+  }
   return checkMemoryRateLimit(key);
 }
 
@@ -287,8 +292,13 @@ async function checkUpstashRateLimit(upstash, key) {
     throw new Error(body?.error || `Upstash rate limit failed with ${response.status}`);
   }
 
-  const windowCount = Number(commandResult(body[0])) || 0;
-  const dailyCount = Number(commandResult(body[2])) || 0;
+  // Fail closed on malformed counters — a 200 with non-numeric results must
+  // not collapse to count 0 and wave the request through.
+  const windowCount = Number(commandResult(body[0]));
+  const dailyCount = Number(commandResult(body[2]));
+  if (!Number.isFinite(windowCount) || !Number.isFinite(dailyCount)) {
+    throw new Error("Upstash rate limit returned malformed counters");
+  }
   const windowRetryMs = Math.max(1000, ((windowStamp + 1) * windowMs) - now.getTime());
 
   if (dailyCount > dailyLimit()) return { ok: false, reason: "daily", retryAfterMs: dailySeconds * 1000 };
