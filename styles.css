@@ -251,11 +251,42 @@ body.onboarding { padding-bottom: env(safe-area-inset-bottom); }
   flex: 1 1 auto; min-height: 0;
   overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
 }
+/* pre-wrap is for plain-text bodies; markup bodies would render their own
+   source indentation as blank lines. */
+.modal-message-html { white-space: normal; }
 .modal-buttons {
   display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; flex: 0 0 auto;
 }
 /* Stop the page behind the sheet from scrolling with it. */
 body.modal-open { overflow: hidden; }
+
+/* Coach review sheet — applyable changes vs advice that changes nothing. */
+.coach-summary { margin: 0 0 12px; font-size: 14px; line-height: 1.5; }
+.coach-h {
+  margin: 16px 0 8px; font-size: 12px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+}
+.coach-flags {
+  background: var(--surface-2); border-left: 3px solid var(--warn);
+  border-radius: 8px; padding: 10px 12px; font-size: 13px;
+}
+.coach-flags ul { margin: 6px 0 0; padding-left: 18px; }
+.coach-flags li { margin-bottom: 4px; }
+.coach-opt {
+  display: flex; gap: 10px; align-items: flex-start; margin: 0 0 8px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px;
+}
+.coach-opt input[type="checkbox"] {
+  width: 20px; height: 20px; margin: 1px 0 0; flex-shrink: 0; accent-color: var(--accent);
+}
+.coach-opt > span { display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+.coach-delta { font-size: 13px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.coach-why { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.coach-advice { margin: 0; padding-left: 18px; font-size: 13px; }
+.coach-advice li { margin-bottom: 8px; }
+.coach-advice .coach-why { display: block; margin-top: 2px; }
+.coach-msg { margin: 16px 0 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
 .modal-buttons button { min-width: 80px; }
 .modal-buttons button.danger { background: var(--danger); border-color: var(--danger); color: white; }
 

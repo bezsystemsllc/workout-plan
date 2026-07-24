@@ -1,12 +1,12 @@
-import { getActivePlan } from "../lib/plan.js";
+import { getActivePlan, dayLabelFor } from "../lib/plan.js";
 import { iconFor } from "../data/exercise-icons.js";
 import { getMeals } from "../lib/meals.js";
 import { dailyMotivation, greeting } from "../data/motivation.js";
 import { waterTargetMl, mlToOz, mealTimes, fmtTime12, toMin, pct, barClass } from "../lib/calc.js";
 import { getActiveSuggestions, dismissSuggestion } from "../lib/adaptations.js";
-import { applyCoachRecommendation, latestCoachReview, requestCoachReview } from "../lib/coach.js";
+import { applyCoachChanges, planCoachChanges, latestCoachReview, requestCoachReview, COACH_NOTE_TTL_DAYS } from "../lib/coach.js";
 import { esc } from "../lib/html.js";
-import { confirmAction, notify, toast } from "../lib/modal.js";
+import { confirmForm, notify, toast } from "../lib/modal.js";
 import { load, todayISO, weekdayKey } from "../storage.js";
 import { navigate } from "../app.js";
 
@@ -98,15 +98,21 @@ export function renderToday(root) {
     btn.textContent = "Analyzing...";
     try {
       const rec = await requestCoachReview();
-      const ok = await confirmAction(formatCoachReview(rec), {
+      const planned = planCoachChanges(rec);
+      const hasChanges = !!planned.diet || planned.swaps.length > 0;
+      const selection = await confirmForm(coachReviewHtml(planned), {
         title: "Coach review",
-        okLabel: "Apply safe changes",
+        okLabel: hasChanges ? "Apply selected" : "Save notes",
+        collect: (wrap) => ({
+          diet: wrap.querySelector("#coach-apply-diet")?.checked !== false,
+          swaps: [...wrap.querySelectorAll("input[data-swap-key]")]
+            .filter((el) => el.checked)
+            .map((el) => el.dataset.swapKey),
+        }),
       });
-      if (!ok) return;
-      const applied = applyCoachRecommendation(rec);
-      toast(applied.targetChanged
-        ? `Updated targets to ${applied.targets.kcal} kcal`
-        : "Saved coach workout notes");
+      if (!selection) return;
+      const applied = applyCoachChanges(planned, selection);
+      toast(describeApplied(applied));
       renderToday(root);
     } catch (err) {
       await notify(err.message || "Coach review failed.", { title: "Coach unavailable" });
@@ -133,39 +139,70 @@ export function renderToday(root) {
   }
 }
 
-function formatCoachReview(rec) {
-  const diet = rec.dietAdjustment;
-  const lines = [
-    rec.summary,
-    "",
-    `Diet: ${formatSigned(diet.kcalDelta, "kcal")}, ${formatSigned(diet.proteinDelta, "g protein")}`,
-    diet.reason,
-  ];
-
-  if (rec.workoutAdjustments.length) {
-    lines.push("", "Workout:");
-    for (const item of rec.workoutAdjustments) {
-      lines.push(`- ${item.exercise}: ${actionLabel(item.action)} — ${item.target}`);
-      lines.push(`  ${item.reason}`);
-    }
-  } else {
-    lines.push("", "Workout: hold current plan.");
-  }
+// Review sheet: exactly what will change, each item opt-out-able, with advice
+// that changes nothing kept visually separate. All model text is escaped — it
+// is untrusted input rendered into a raw-HTML modal body.
+function coachReviewHtml(planned) {
+  const { recommendation: rec, diet, swaps, advisory } = planned;
+  const out = [`<p class="coach-summary">${esc(rec.summary)}</p>`];
 
   if (rec.riskFlags.length) {
-    lines.push("", "Safety flags:");
-    for (const flag of rec.riskFlags) lines.push(`- ${flag}`);
+    out.push(`
+      <div class="coach-flags">
+        <b>Safety flags</b>
+        <ul>${rec.riskFlags.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>
+      </div>`);
   }
 
-  lines.push("", rec.userMessage);
-  lines.push("", "Accepting applies calorie/protein target changes and saves the workout notes.");
-  return lines.join("\n");
+  out.push(`<h3 class="coach-h">Changes to apply</h3>`);
+  if (!diet && !swaps.length) {
+    out.push(`<p class="hint">None — the coach recommends holding your current targets and plan.</p>`);
+  }
+  if (diet) {
+    out.push(`
+      <label class="coach-opt">
+        <input type="checkbox" id="coach-apply-diet" checked />
+        <span>
+          <b>Update daily targets</b>
+          <span class="coach-delta">${esc(diet.before.kcal)} → ${esc(diet.after.kcal)} kcal · ${esc(diet.before.p)} → ${esc(diet.after.p)} g protein</span>
+          <span class="coach-why">${esc(diet.reason)}</span>
+          <span class="coach-why">Your meal plan regenerates to match the new targets.</span>
+        </span>
+      </label>`);
+  }
+  for (const swap of swaps) {
+    out.push(`
+      <label class="coach-opt">
+        <input type="checkbox" data-swap-key="${esc(swap.key)}" checked />
+        <span>
+          <b>Swap ${esc(swap.fromName)} → ${esc(swap.toName)}</b>
+          <span class="coach-delta">${esc(dayLabelFor(swap.dayKey))}</span>
+          <span class="coach-why">${esc(swap.reason)}</span>
+        </span>
+      </label>`);
+  }
+
+  if (advisory.length) {
+    out.push(`<h3 class="coach-h">Advice — nothing changes</h3>`);
+    out.push(`<p class="hint">These show as tips beside the exercise on the Workout tab. Your logged sets still drive the actual load and rep targets.</p>`);
+    out.push(`<ul class="coach-advice">${advisory.map((n) => `
+      <li>
+        <b>${esc(n.exercise)}</b> — ${esc(actionLabel(n.action))}: ${esc(n.target)}
+        <span class="coach-why">${esc(n.reason)}</span>
+      </li>`).join("")}</ul>`);
+  }
+
+  out.push(`<p class="coach-msg">${esc(rec.userMessage)}</p>`);
+  return out.join("");
 }
 
-function formatSigned(value, unit) {
-  const n = Number(value) || 0;
-  if (!n) return unit.includes("protein") ? "no protein change" : "no calorie change";
-  return `${n > 0 ? "+" : ""}${n} ${unit}`;
+function describeApplied(applied) {
+  const bits = [];
+  if (applied.targetChanged) bits.push(`targets → ${applied.targets.kcal} kcal`);
+  if (applied.appliedSwaps.length) {
+    bits.push(`${applied.appliedSwaps.length} exercise${applied.appliedSwaps.length > 1 ? "s" : ""} swapped`);
+  }
+  return bits.length ? `Applied: ${bits.join(" · ")}` : "Saved coach notes";
 }
 
 function actionLabel(action) {
@@ -180,12 +217,15 @@ function actionLabel(action) {
 }
 
 function renderCoachReviewSummary(review) {
-  const notes = review.workoutNotes.slice(0, 2);
+  const notes = review.stale ? [] : review.workoutNotes.slice(0, 2);
+  const age = review.stale ? " · outdated" : "";
   return `
     <div class="next-meal">
-      <span class="muted small">Latest review${review.ts ? ` · ${esc(new Date(review.ts).toLocaleDateString())}` : ""}</span>
+      <span class="muted small">Latest review${review.ts ? ` · ${esc(new Date(review.ts).toLocaleDateString())}` : ""}${age}</span>
       <div><b>${esc(review.summary)}</b></div>
       ${review.targets ? `<div class="hint">Targets: ${esc(review.targets.kcal)} kcal, ${esc(review.targets.p)}g protein</div>` : ""}
+      ${review.appliedSwaps?.length ? `<div class="hint">Swapped: ${esc(review.appliedSwaps.map(s => `${s.from} → ${s.to}`).join(", "))}</div>` : ""}
+      ${review.stale ? `<div class="hint">Older than ${COACH_NOTE_TTL_DAYS} days — run a new analysis for current advice.</div>` : ""}
       ${notes.length ? `
         <ul class="today-ex-list" style="margin-top:8px">
           ${notes.map((note) => `
