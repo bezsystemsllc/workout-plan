@@ -70,25 +70,18 @@ exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return json(204, {});
   if (event.httpMethod !== "POST") return json(405, { error: "Use POST." });
 
-  // Bring-your-own-key: a caller-supplied key is used instead of the owner's,
-  // so the review runs on the user's own OpenAI account. The key is used for
-  // this request only — never stored, never logged.
-  const userKey = userApiKey(event);
-  if (userKey === null) {
-    return unavailable(400, "invalid_user_key", "The supplied OpenAI key is not in a valid format. No changes were applied.");
-  }
-  const apiKey = userKey || String(process.env.OPENAI_API_KEY || "").trim();
+  // Owner-funded path only. Users who bring their own key never come through
+  // here — the client calls OpenAI directly so the key stays on their device
+  // and there is no request shape that can carry a user key into this function.
+  const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
   if (!apiKey) {
-    return unavailable(503, "missing_api_key", "AI coach needs an OpenAI key — add your own in Settings, or set OPENAI_API_KEY. The rest of Tempo still works.");
+    return unavailable(503, "missing_api_key", "This site has no AI coach key configured. Add your own OpenAI key in Settings. The rest of Tempo still works.");
   }
 
   const originFailure = checkAllowedOrigin(event);
   if (originFailure) return originFailure;
 
-  // Owner-funded calls keep the strict shared budget. BYOK callers spend their
-  // own credit, so they only need a cap loose enough to stop this function
-  // being used as an open relay.
-  const rate = await checkRateLimit(clientKey(event, !!userKey), limitsFor(!!userKey));
+  const rate = await checkRateLimit(clientKey(event));
   if (!rate.ok) return rateLimitResponse(rate);
 
   if (event.isBase64Encoded) {
@@ -142,7 +135,7 @@ exports.handler = async (event) => {
 
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
-      return openAIError(response, payload, !!userKey);
+      return openAIError(response, payload);
     }
 
     const text = extractOutputText(payload);
@@ -158,27 +151,11 @@ exports.handler = async (event) => {
     const recommendation = sanitizeRecommendation(parsed);
     return json(200, { recommendation });
   } catch (err) {
-    // Message only — an error object could carry request details, and a BYOK
-    // request carries the user's key.
+    // Message only — a raw error object can carry request details.
     console.error("coach function failed:", err?.message || "unknown error");
     return unavailable(503, "upstream_unavailable", "AI coach is temporarily unavailable. The rest of Tempo still works.");
   }
 };
-
-// "" = absent (use the owner key), null = present but malformed, string = use it.
-// The character class excludes whitespace and control characters, so the value
-// is always safe to place in the outgoing Authorization header.
-function userApiKey(event) {
-  const raw = header(event, "x-openai-key").trim();
-  if (!raw) return "";
-  return /^sk-[\x21-\x7e]{16,300}$/.test(raw) ? raw : null;
-}
-
-function limitsFor(byok) {
-  return byok
-    ? { window: envNumber("COACH_BYOK_RATE_LIMIT", 30, 1, 500), daily: envNumber("COACH_BYOK_DAILY_LIMIT", 200, 1, 5000) }
-    : { window: rateLimit(), daily: dailyLimit() };
-}
 
 function rateLimitResponse(rate) {
   const retrySeconds = Math.max(1, Math.ceil(rate.retryAfterMs / 1000));
@@ -233,11 +210,11 @@ function requestOrigin(event) {
   }
 }
 
-async function checkRateLimit(key, limits) {
+async function checkRateLimit(key) {
   const supabase = supabaseConfig();
   if (supabase) {
     try {
-      return await checkSupabaseRateLimit(supabase, key, limits);
+      return await checkSupabaseRateLimit(supabase, key);
     } catch (err) {
       console.error("rate limit store failed", err);
       return { ok: false, reason: "store_unavailable", retryAfterMs: 60 * 1000 };
@@ -247,7 +224,7 @@ async function checkRateLimit(key, limits) {
   const upstash = upstashConfig();
   if (upstash) {
     try {
-      return await checkUpstashRateLimit(upstash, key, limits);
+      return await checkUpstashRateLimit(upstash, key);
     } catch (err) {
       console.error("rate limit store failed", err);
       return { ok: false, reason: "store_unavailable", retryAfterMs: 60 * 1000 };
@@ -257,10 +234,10 @@ async function checkRateLimit(key, limits) {
     memoryFallbackWarned = true;
     console.warn("coach: no Supabase/Upstash configured — in-memory rate limiting is per-instance and best-effort only. Configure a durable store for production (see README).");
   }
-  return checkMemoryRateLimit(key, limits);
+  return checkMemoryRateLimit(key);
 }
 
-async function checkSupabaseRateLimit(supabase, key, limits) {
+async function checkSupabaseRateLimit(supabase, key) {
   const now = new Date();
   const windowSeconds = rateWindowSeconds();
   const windowMs = windowSeconds * 1000;
@@ -276,8 +253,8 @@ async function checkSupabaseRateLimit(supabase, key, limits) {
       p_window_reset_at: windowResetAt,
       p_daily_bucket: dateStamp(now),
       p_daily_reset_at: dailyResetAt,
-      p_window_limit: limits.window,
-      p_daily_limit: limits.daily,
+      p_window_limit: rateLimit(),
+      p_daily_limit: dailyLimit(),
     }),
   }, rateLimitTimeoutMs());
   const body = await response.json().catch(() => null);
@@ -294,7 +271,7 @@ async function checkSupabaseRateLimit(supabase, key, limits) {
   };
 }
 
-async function checkUpstashRateLimit(upstash, key, limits) {
+async function checkUpstashRateLimit(upstash, key) {
   const now = new Date();
   const windowSeconds = rateWindowSeconds();
   const windowMs = windowSeconds * 1000;
@@ -329,13 +306,13 @@ async function checkUpstashRateLimit(upstash, key, limits) {
   }
   const windowRetryMs = Math.max(1000, ((windowStamp + 1) * windowMs) - now.getTime());
 
-  if (dailyCount > limits.daily) return { ok: false, reason: "daily", retryAfterMs: dailySeconds * 1000 };
-  if (windowCount > limits.window) return { ok: false, reason: "window", retryAfterMs: windowRetryMs };
+  if (dailyCount > dailyLimit()) return { ok: false, reason: "daily", retryAfterMs: dailySeconds * 1000 };
+  if (windowCount > rateLimit()) return { ok: false, reason: "window", retryAfterMs: windowRetryMs };
   return { ok: true };
 }
 
-function checkMemoryRateLimit(key, limits) {
-  const limit = limits.window;
+function checkMemoryRateLimit(key) {
+  const limit = rateLimit();
   const now = Date.now();
   const date = new Date(now);
   const windowMs = rateWindowSeconds() * 1000;
@@ -348,7 +325,7 @@ function checkMemoryRateLimit(key, limits) {
   const window = bumpBucket(memoryWindowBuckets, `${windowStamp}:${key}`, windowResetAt);
   const daily = bumpBucket(memoryDailyBuckets, `${dateStamp(date)}:${key}`, dailyResetAt);
 
-  if (daily.count > limits.daily) return { ok: false, reason: "daily", retryAfterMs: daily.resetAt - now };
+  if (daily.count > dailyLimit()) return { ok: false, reason: "daily", retryAfterMs: daily.resetAt - now };
   return window.count <= limit
     ? { ok: true }
     : { ok: false, reason: "window", retryAfterMs: window.resetAt - now };
@@ -393,16 +370,14 @@ function envNumber(name, fallback, min, max) {
   return Math.max(min, Math.min(max, Math.round(raw)));
 }
 
-// BYOK callers get their own bucket namespace so spending their own credit
-// never eats into the owner-funded budget for that IP.
-function clientKey(event, byok) {
+function clientKey(event) {
   const forwarded = header(event, "x-forwarded-for");
   const ip = header(event, "x-nf-client-connection-ip")
     || header(event, "client-ip")
     || header(event, "x-real-ip")
     || (forwarded ? forwarded.split(",")[0].trim() : "")
     || "unknown";
-  return `${byok ? "byok:" : ""}${hashClientKey(ip)}`;
+  return hashClientKey(ip);
 }
 
 function hashClientKey(ip) {
@@ -464,7 +439,7 @@ function header(event, name) {
   return headers[name] || headers[name.toLowerCase()] || headers[name.toUpperCase()] || "";
 }
 
-function openAIError(response, payload, byok) {
+function openAIError(response, payload) {
   const retryAfter = response.headers?.get?.("retry-after") || "";
   const upstreamCode = payload?.error?.code || payload?.error?.type || "";
   const upstreamMessage = payload?.error?.message || "";
@@ -475,9 +450,7 @@ function openAIError(response, payload, byok) {
   });
 
   if (response.status === 401 || response.status === 403) {
-    return byok
-      ? unavailable(400, "user_key_auth_failed", "Your OpenAI key was rejected. Check or replace it in Settings. No changes were applied.")
-      : unavailable(503, "auth_failed", "AI coach is unavailable because the OpenAI API key is invalid or lacks access. The rest of Tempo still works.");
+    return unavailable(503, "auth_failed", "AI coach is unavailable because the OpenAI API key is invalid or lacks access. The rest of Tempo still works.");
   }
   if (response.status === 429) {
     return unavailable(429, "quota_or_rate_limit", "AI coach is temporarily unavailable because the OpenAI quota or rate limit was reached. No changes were applied.", retryAfter);

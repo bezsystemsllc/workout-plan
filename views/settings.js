@@ -117,7 +117,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     return `
       <section class="card">
         <h2>AI coach key</h2>
-        <p class="hint">Optional. Add your own OpenAI key and coach reviews run on your account instead of the site's shared quota. The key is stored only in this browser on this device, and is never included in your backup file.</p>
+        <p class="hint">Optional. Add your own OpenAI key and coach reviews run on your account instead of the site's shared quota. Your key is stored only in this browser on this device, is never included in your backup file, and is sent straight to OpenAI — it never passes through this site's server.</p>
         ${saved ? `<p class="hint" style="margin-top:0">Saved key: <b>sk-…${esc(saved.slice(-4))}</b></p>` : ""}
         <label for="f-api-key">OpenAI API key</label>
         <input id="f-api-key" type="password" autocomplete="off" spellcheck="false" placeholder="${saved ? "Enter a new key to replace" : "sk-…"}" />
