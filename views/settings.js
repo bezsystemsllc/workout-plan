@@ -1,4 +1,4 @@
-import { clearStorage, load, update } from "../storage.js";
+import { clearStorage, load, loadApiKey, saveApiKey, update } from "../storage.js";
 import {
   ACTIVITY, GOAL, SEX, computeTargets, projectTargetWeightLb,
   bmr, tdee, kgToLb, lbToKg, cmToFtIn, ftInToCm,
@@ -11,6 +11,7 @@ import { EQUIPMENT, EQUIPMENT_PRESETS } from "../data/exercises.js";
 import { DIETS, PROTEIN_GROUPS, CARB_GROUPS, ALLERGENS, proteinGroupsForDiet } from "../data/foods.js";
 import { DEFAULT_FOOD_PREFS } from "../lib/meals.js";
 import { notify, confirmAction, toast } from "../lib/modal.js";
+import { esc } from "../lib/html.js";
 import { navigate } from "../app.js";
 
 const WEEKDAYS = [["mon","Mon"],["tue","Tue"],["wed","Wed"],["thu","Thu"],["fri","Fri"],["sat","Sat"],["sun","Sun"]];
@@ -105,6 +106,26 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
           `).join("")}
         </div>
         ${settings.plan && !isOnboarding ? `<button class="ghost" id="shuffle-ex" style="width:100%;margin-top:12px">🎲 Shuffle exercises (keep layout)</button>` : ""}
+      </section>
+    `;
+  }
+
+  // Optional own-key card for the AI coach. Kept out of the wizard so setup
+  // stays seven steps — this is a power-user setting, not part of onboarding.
+  function coachKeyCard() {
+    const saved = loadApiKey();
+    return `
+      <section class="card">
+        <h2>AI coach key</h2>
+        <p class="hint">Optional. Add your own OpenAI key and coach reviews run on your account instead of the site's shared quota. The key is stored only in this browser on this device, and is never included in your backup file.</p>
+        ${saved ? `<p class="hint" style="margin-top:0">Saved key: <b>sk-…${esc(saved.slice(-4))}</b></p>` : ""}
+        <label for="f-api-key">OpenAI API key</label>
+        <input id="f-api-key" type="password" autocomplete="off" spellcheck="false" placeholder="${saved ? "Enter a new key to replace" : "sk-…"}" />
+        <p class="hint" style="margin-top:8px">Create a project-scoped key with a spending limit at platform.openai.com — don't paste an org-wide key.</p>
+        <div class="grid-2" style="margin-top:6px">
+          <button class="primary" id="f-api-save">${saved ? "Replace key" : "Save key"}</button>
+          <button class="ghost danger" id="f-api-clear" ${saved ? "" : "disabled"}>Remove key</button>
+        </div>
       </section>
     `;
   }
@@ -242,6 +263,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       <div class="wiz-head"></div>
       <div class="wizard"><div class="wizard-track">${steps.map(s => `<div class="wizard-step">${s.html}</div>`).join("")}</div></div>
       <div class="wiz-nav"></div>
+      ${!isOnboarding ? coachKeyCard() : ""}
       ${!isOnboarding ? `<button class="ghost danger" id="f-reset" style="width:100%;margin-top:10px">Reset all data</button>` : ""}
     `;
 
@@ -346,6 +368,28 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       update("settings", (s) => ({ ...s, trainingPrefs: draftPrefs, plan }));
       toast("Fresh exercises generated");
       navigate("workout");
+    });
+    root.querySelector("#f-api-save")?.addEventListener("click", async () => {
+      const input = root.querySelector("#f-api-key");
+      const value = input.value.trim();
+      if (!value) { await notify("Paste your OpenAI key first.", { title: "No key entered" }); return; }
+      if (!/^sk-\S{16,}$/.test(value)) {
+        await notify("That doesn't look like an OpenAI key — it should start with \"sk-\".", { title: "Check the key" });
+        return;
+      }
+      saveApiKey(value);
+      input.value = "";
+      toast("Coach key saved to this device");
+      rerender();
+    });
+    root.querySelector("#f-api-clear")?.addEventListener("click", async () => {
+      const ok = await confirmAction(
+        "Coach reviews will go back to the site's shared quota, which may be limited or unavailable.",
+        { title: "Remove your key?", okLabel: "Remove", danger: true });
+      if (!ok) return;
+      saveApiKey("");
+      toast("Coach key removed");
+      rerender();
     });
     root.querySelector("#f-reset")?.addEventListener("click", doReset);
     root.querySelector("#starter-plan")?.addEventListener("click", doStarterPlan);

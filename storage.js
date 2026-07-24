@@ -542,12 +542,36 @@ export function importJSON(text) {
   monolithicFallbackActive = false;
 }
 
+// The user's own OpenAI key is deliberately NOT part of the managed state:
+// readAll()/exportJSON() never see it, so a backup file can be shared without
+// leaking it. It stays in this browser profile on this device.
+const API_KEY_STORAGE = `${KEY}:openai-key`;
+
+export function loadApiKey() {
+  try {
+    return localStorage.getItem(API_KEY_STORAGE) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function saveApiKey(value) {
+  const key = String(value || "").trim();
+  try {
+    if (key) localStorage.setItem(API_KEY_STORAGE, key);
+    else localStorage.removeItem(API_KEY_STORAGE);
+  } catch (e) {
+    reportWriteFailure(e);
+  }
+}
+
 export function clearStorage() {
   cache = null;
   sectionSerialized = {};
   monolithicFallbackActive = false;
   localStorage.removeItem(KEY);
   localStorage.removeItem(`${KEY}:recovery`);
+  localStorage.removeItem(API_KEY_STORAGE);
   for (const key of Object.values(SECTION_KEYS)) {
     localStorage.removeItem(key);
     localStorage.removeItem(`${key}:recovery`);

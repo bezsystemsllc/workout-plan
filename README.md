@@ -110,7 +110,12 @@ Netlify settings:
 - Publish directory: `.`
 - Function directory: handled by `netlify.toml`
 - Environment import template: copy [`netlify.env.example`](netlify.env.example) to `netlify.env`, fill in real values, then import `netlify.env` into Netlify.
-- Environment variables: set `OPENAI_API_KEY` to enable **Coach review**. Optional: set `OPENAI_MODEL` to choose the model; otherwise the function uses `gpt-4.1-mini`.
+- Environment variables: set `OPENAI_API_KEY` to enable **Coach review** for everyone. Optional: set `OPENAI_MODEL` to choose the model; otherwise the function uses `gpt-4.1-mini`.
+- **Who pays for coach reviews** — three modes, same build:
+  - *Owner-funded* — set `OPENAI_API_KEY`. Every visitor shares your quota, capped by the rate limits below.
+  - *Bring-your-own-key* — set **no** `OPENAI_API_KEY`. Coach review stays disabled until a user saves their own key under **Settings → AI coach key**, and it then runs on their OpenAI account at their cost.
+  - *Hybrid* — set `OPENAI_API_KEY` as a limited free tier; any user who saves their own key bypasses your quota automatically.
+- User keys are stored only in that browser on that device, are excluded from backup exports, and are sent per request in an `X-OpenAI-Key` header for that one call — never stored or logged by the function. BYOK requests get their own rate-limit budget (`COACH_BYOK_RATE_LIMIT`, default `30` per window; `COACH_BYOK_DAILY_LIMIT`, default `200` per day) so they don't consume the shared one.
 - Abuse controls: coach calls are rate-limited by client IP before any OpenAI call is made. Set `COACH_RATE_LIMIT` for requests per window, `COACH_RATE_WINDOW_SECONDS` for the window size, and `COACH_DAILY_LIMIT` for the daily cap. Defaults: `5` requests per `900` seconds and `20` requests per day.
 - Production rate-limit store: Supabase is supported without extra npm dependencies. Run [`supabase-rate-limit.sql`](supabase-rate-limit.sql) in Supabase SQL Editor, then set `SUPABASE_URL` and `SUPABASE_SECRET_KEY` in Netlify. Older Supabase projects can use `SUPABASE_SERVICE_ROLE_KEY` instead of `SUPABASE_SECRET_KEY`.
 - Alternate rate-limit store: set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` if you prefer Upstash Redis. Without Supabase or Upstash, the function uses an in-memory fallback that is best-effort only on serverless cold starts.
@@ -118,7 +123,7 @@ Netlify settings:
 - Optional privacy hardening: set `RATE_LIMIT_SALT` so IP addresses are hashed before they become rate-limit keys.
 - Optional timeout tuning: set `OPENAI_TIMEOUT_MS` and `RATE_LIMIT_TIMEOUT_MS` if you need different upstream timeouts. Defaults are `12000` ms and `3000` ms.
 
-If `OPENAI_API_KEY` is missing, invalid, out of quota, rate-limited, or OpenAI is unavailable, the coach review shows a friendly unavailable message and applies no changes. Meal tracking, workouts, progress logging, offline PWA behavior, and the deterministic adaptation engine continue to work.
+If no key is available (neither the site's nor your own), or the key is invalid, out of quota, rate-limited, or OpenAI is unavailable, the coach review shows a friendly unavailable message and applies no changes. Meal tracking, workouts, progress logging, offline PWA behavior, and the deterministic adaptation engine continue to work.
 
 ## Data & privacy
 
