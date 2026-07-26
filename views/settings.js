@@ -5,7 +5,7 @@ import {
 } from "../lib/calc.js";
 import {
   generatePlan, buildSplits, DEFAULT_PREFS, STYLE_OPTIONS, EXPERIENCE,
-  DAY_LABEL, dayLabelFor, dayFromToken, tokenFromDay,
+  DAY_LABEL, dayLabelFor, dayFromToken, tokenFromDay, VARIANT_SUFFIX,
 } from "../lib/plan.js";
 import { EQUIPMENT, EQUIPMENT_PRESETS } from "../data/exercises.js";
 import { DIETS, PROTEIN_GROUPS, CARB_GROUPS, ALLERGENS, proteinGroupsForDiet } from "../data/foods.js";
@@ -89,7 +89,12 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     // Offer A and B variants of each split day; C only when the generated
     // layout already uses it (e.g. 5-day upper/lower).
     const inUse = new Set(Object.values(draftSplits).filter(s => s.type === "lift").map(s => s.day));
-    const variantKeys = liftKeys.flatMap(k => [k, `${k}-b`, ...(inUse.has(`${k}-c`) ? [`${k}-c`] : [])]);
+    // Always offer A and B; deeper variants only once the generated layout uses
+    // them, so a 3-day week isn't asked to choose between six near-identical rows.
+    const variantKeys = liftKeys.flatMap((k) => {
+      const all = VARIANT_SUFFIX.map((s) => k + s);
+      return all.filter((key, i) => i < 2 || inUse.has(key));
+    });
     const dayOptions = [["rest", "Rest"], ["cardio", "Cardio"], ...variantKeys.map(k => [`lift:${k}`, dayLabelFor(k)])];
     return `
       <section class="card">
