@@ -6,6 +6,7 @@ import { dateNavHtml, wireDateNav } from "../lib/date-nav.js";
 import { esc } from "../lib/html.js";
 import { confirmForm, notify, toast } from "../lib/modal.js";
 import { analyzeMealPhoto, searchFoods } from "../lib/meal-ai.js";
+import { aiProgressHtml, setAiProgress } from "../lib/ai-progress.js";
 
 export function renderMeals(root) {
   const today = todayISO();
@@ -43,6 +44,7 @@ export function renderMeals(root) {
       </div>
       <button class="ghost" id="photo-log" style="width:100%;margin-top:8px">📷 Log from a photo</button>
       <input type="file" id="photo-input" accept="image/*" capture="environment" hidden />
+      ${aiProgressHtml("meal-ai-progress")}
       <p class="hint">Both are estimates — check the numbers before adding.</p>
     `;
   }
@@ -278,25 +280,39 @@ export function renderMeals(root) {
     });
 
     // Both AI entry points share one flow: run, then review an editable draft.
+    let aiBusy = false;
     async function runAiLookup(btn, busyLabel, emptyMessage, errorTitle, lead, run) {
-      const label = btn.textContent;
-      btn.disabled = true;
+      if (!btn || aiBusy) return;
+      aiBusy = true;
+      const progress = root.querySelector("#meal-ai-progress");
+      const buttons = [...root.querySelectorAll("#food-search, #photo-log")];
+      const labels = new Map(buttons.map((button) => [button, button.textContent]));
+      for (const button of buttons) button.disabled = true;
       btn.textContent = busyLabel;
+      setAiProgress(progress, busyLabel);
       let result;
       try {
         result = await run();
       } catch (err) {
+        setAiProgress(progress, "Couldn't finish", "error");
         await notify(err.message || "That lookup failed.", { title: errorTitle });
         return;
       } finally {
-        if (document.contains(btn)) { btn.disabled = false; btn.textContent = label; }
+        aiBusy = false;
+        for (const button of buttons) {
+          if (!document.contains(button)) continue;
+          button.disabled = false;
+          button.textContent = labels.get(button);
+        }
       }
 
       if (!result.items.length) {
+        setAiProgress(progress, "Finished — nothing found", "done");
         await notify(result.note || emptyMessage, { title: "Nothing to add" });
         return;
       }
 
+      setAiProgress(progress, "Ready to review", "done");
       const chosen = await confirmForm(mealItemsReviewHtml(result, lead), {
         title: "Add to today",
         okLabel: "Add selected",
@@ -351,7 +367,7 @@ export function renderMeals(root) {
 
     const queryInput = root.querySelector("#food-q");
     const doSearch = () => runAiLookup(
-      root.querySelector("#food-search"), "…",
+      root.querySelector("#food-search"), "Searching…",
       "That didn't look like a food. Try naming the dish and how much.",
       "Lookup failed",
       "Typical values for what you described. Check the portion — that's where these are most often wrong.",

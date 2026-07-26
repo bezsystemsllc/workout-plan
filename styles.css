@@ -150,6 +150,39 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px
 .bar.warn > span { background: var(--warn); }
 .bar.over > span { background: var(--danger); }
 
+.ai-progress {
+  margin-top: 10px; padding: 9px 10px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.ai-progress[hidden] { display: none; }
+.ai-progress-head {
+  display: flex; align-items: center; gap: 7px;
+  color: var(--muted); font-size: 12px; font-weight: 600;
+}
+.ai-progress-mark {
+  color: var(--accent); font-size: 15px; line-height: 1;
+  animation: ai-progress-pulse 900ms ease-in-out infinite alternate;
+}
+.ai-progress-track {
+  height: 6px; margin-top: 7px; overflow: hidden;
+  background: var(--border); border-radius: 999px;
+}
+.ai-progress-fill {
+  display: block; width: 38%; height: 100%;
+  background: var(--accent); border-radius: inherit;
+  animation: ai-progress-move 1.1s ease-in-out infinite;
+}
+.ai-progress.done .ai-progress-head { color: var(--text); }
+.ai-progress.done .ai-progress-mark { animation: none; }
+.ai-progress.done .ai-progress-fill {
+  width: 100%; animation: none;
+}
+.ai-progress.error .ai-progress-mark { color: var(--danger); animation: none; }
+.ai-progress.error .ai-progress-fill {
+  width: 100%; background: var(--danger); animation: none;
+}
+
 .tabs {
   position: fixed; left: 0; right: 0; bottom: 0;
   display: grid; grid-template-columns: repeat(5, 1fr);
@@ -327,6 +360,14 @@ body.modal-open { overflow: hidden; }
 @keyframes pop-in {
   from { opacity: 0; transform: translateY(8px) scale(0.97); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes ai-progress-move {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(270%); }
+}
+@keyframes ai-progress-pulse {
+  from { opacity: 0.45; transform: scale(0.85); }
+  to { opacity: 1; transform: scale(1.08); }
 }
 
 /* Date navigator */
@@ -557,6 +598,8 @@ select {
 .wiz-nav #wiz-back[disabled] { opacity: 0.4; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) {
   .wizard, .wizard-track { transition: none !important; }
+  .ai-progress-mark, .ai-progress-fill { animation: none; }
+  .ai-progress:not(.done):not(.error) .ai-progress-fill { width: 65%; }
 }
 
 /* Narrow phones: a 4-up macro grid gets cramped */

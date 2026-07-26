@@ -9,6 +9,7 @@ import { esc } from "../lib/html.js";
 import { confirmForm, notify, toast } from "../lib/modal.js";
 import { load, todayISO, weekdayKey } from "../storage.js";
 import { navigate } from "../app.js";
+import { aiProgressHtml, setAiProgress } from "../lib/ai-progress.js";
 
 export function renderToday(root) {
   const plan = getActivePlan();
@@ -48,6 +49,7 @@ export function renderToday(root) {
       </div>
       <p class="hint">Recent trend check for diet, workouts, and weight.</p>
       <button class="ghost" id="coach-review" style="margin-top:10px;width:100%">Analyze progress</button>
+      ${aiProgressHtml("coach-ai-progress")}
       ${coachReview ? renderCoachReviewSummary(coachReview) : ""}
     </section>
 
@@ -96,8 +98,11 @@ export function renderToday(root) {
     const previousLabel = btn.textContent;
     btn.disabled = true;
     btn.textContent = "Analyzing...";
+    const progress = root.querySelector("#coach-ai-progress");
+    setAiProgress(progress, "Checking your recent trends…");
     try {
       const rec = await requestCoachReview();
+      setAiProgress(progress, "Review ready", "done");
       const planned = planCoachChanges(rec);
       const hasChanges = !!planned.diet || planned.swaps.length > 0;
       const selection = await confirmForm(coachReviewHtml(planned), {
@@ -115,6 +120,7 @@ export function renderToday(root) {
       toast(describeApplied(applied));
       renderToday(root);
     } catch (err) {
+      setAiProgress(progress, "Couldn't finish", "error");
       await notify(err.message || "Coach review failed.", { title: "Coach unavailable" });
     } finally {
       if (document.contains(btn)) {
