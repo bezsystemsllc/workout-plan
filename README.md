@@ -58,7 +58,7 @@ Once installed it launches full-screen and works offline — the app shell and y
 | Auto-progression engine | [`lib/progression.js`](lib/progression.js) |
 | Calorie recalibration & goal detection | [`lib/adaptations.js`](lib/adaptations.js) |
 | Optional AI coach snapshot/apply flow | [`lib/coach.js`](lib/coach.js), [`netlify/functions/coach.js`](netlify/functions/coach.js) |
-| Photo meal logging (own key, direct to OpenAI) | [`lib/meal-photo.js`](lib/meal-photo.js), [`lib/openai.js`](lib/openai.js) |
+| Photo + food-search meal logging (own key, direct to OpenAI) | [`lib/meal-ai.js`](lib/meal-ai.js), [`lib/openai.js`](lib/openai.js) |
 | Offline cache | [`sw.js`](sw.js) |
 | Storage / backup | [`storage.js`](storage.js) |
 | Routing + shell | [`app.js`](app.js), [`index.html`](index.html) |

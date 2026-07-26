@@ -5,7 +5,7 @@ import { waterTargetMl, mlToOz, mealTimes, fmtTime12, toMin, pct, barClass } fro
 import { dateNavHtml, wireDateNav } from "../lib/date-nav.js";
 import { esc } from "../lib/html.js";
 import { confirmForm, notify, toast } from "../lib/modal.js";
-import { analyzeMealPhoto } from "../lib/meal-photo.js";
+import { analyzeMealPhoto, searchFoods } from "../lib/meal-ai.js";
 
 export function renderMeals(root) {
   const today = todayISO();
@@ -29,16 +29,21 @@ export function renderMeals(root) {
     return s;
   }
 
-  // Photo logging runs on the user's own key only — the image goes straight to
-  // OpenAI from this device and is never stored.
-  function photoCardHtml() {
+  // AI logging runs on the user's own key only — photos and descriptions go
+  // straight to OpenAI from this device, and photos are never stored.
+  function aiCardHtml() {
     if (!loadApiKey()) {
-      return `<p class="hint" style="margin-top:10px">📷 Want to log a meal from a photo? Add your own OpenAI key in Settings — the photo goes straight to OpenAI from this device and is never saved.</p>`;
+      return `<p class="hint" style="margin-top:10px">🔎 Want to look up a food by name, or log a meal from a photo? Add your own OpenAI key in Settings — requests go straight to OpenAI from this device and photos are never saved.</p>`;
     }
     return `
-      <button class="ghost" id="photo-log" style="width:100%;margin-top:10px">📷 Log from a photo</button>
+      <label style="margin-top:10px" for="food-q">Look up a food</label>
+      <div class="row" style="gap:8px">
+        <input id="food-q" type="text" style="flex:1" placeholder="2 eggs and a slice of toast" />
+        <button class="ghost" id="food-search" style="min-width:64px">Search</button>
+      </div>
+      <button class="ghost" id="photo-log" style="width:100%;margin-top:8px">📷 Log from a photo</button>
       <input type="file" id="photo-input" accept="image/*" capture="environment" hidden />
-      <p class="hint">Estimated from the photo — check the numbers before adding. Portion size from a photo is a guess.</p>
+      <p class="hint">Both are estimates — check the numbers before adding.</p>
     `;
   }
 
@@ -153,7 +158,7 @@ export function renderMeals(root) {
               </tbody>
             </table>
           `}
-        ${photoCardHtml()}
+        ${aiCardHtml()}
         ${savedFoods.length ? `
           <label style="margin-top:10px">Quick-add from My Foods</label>
           <div class="row" style="gap:8px">
@@ -272,61 +277,98 @@ export function renderMeals(root) {
       render();
     });
 
-    const photoInput = root.querySelector("#photo-input");
-    root.querySelector("#photo-log")?.addEventListener("click", () => photoInput?.click());
-    photoInput?.addEventListener("change", async (e) => {
-      const file = e.target.files?.[0];
-      e.target.value = ""; // let the same photo be picked again after a cancel
-      if (!file) return;
-
-      const btn = root.querySelector("#photo-log");
+    // Both AI entry points share one flow: run, then review an editable draft.
+    async function runAiLookup(btn, busyLabel, emptyMessage, errorTitle, lead, run) {
       const label = btn.textContent;
       btn.disabled = true;
-      btn.textContent = "Reading photo…";
+      btn.textContent = busyLabel;
       let result;
       try {
-        result = await analyzeMealPhoto(loadApiKey(), file);
+        result = await run();
       } catch (err) {
-        await notify(err.message || "Couldn't read that photo.", { title: "Photo not analyzed" });
+        await notify(err.message || "That lookup failed.", { title: errorTitle });
         return;
       } finally {
         if (document.contains(btn)) { btn.disabled = false; btn.textContent = label; }
       }
 
       if (!result.items.length) {
-        await notify(result.note || "No food was recognized in that photo. Try a clearer, closer shot.", { title: "Nothing to add" });
+        await notify(result.note || emptyMessage, { title: "Nothing to add" });
         return;
       }
 
-      const chosen = await confirmForm(photoReviewHtml(result), {
-        title: "Add from photo",
+      const chosen = await confirmForm(mealItemsReviewHtml(result, lead), {
+        title: "Add to today",
         okLabel: "Add selected",
-        collect: (wrap) => [...wrap.querySelectorAll("[data-item-row]")]
-          .filter((row) => row.querySelector("input[type=checkbox]").checked)
-          .map((row) => ({
-            name: row.dataset.name,
-            kcal: Math.max(1, Math.round(+row.querySelector("[data-f=kcal]").value || 0)),
-            p: Math.max(0, Math.round(+row.querySelector("[data-f=p]").value || 0)),
-            f: Math.max(0, Math.round(+row.querySelector("[data-f=f]").value || 0)),
-            c: Math.max(0, Math.round(+row.querySelector("[data-f=c]").value || 0)),
-          })),
+        collect: (wrap) => ({
+          save: wrap.querySelector("#ai-save-foods")?.checked === true,
+          items: [...wrap.querySelectorAll("[data-item-row]")]
+            .filter((row) => row.querySelector("input[type=checkbox]").checked)
+            .map((row) => ({
+              name: row.dataset.name,
+              kcal: Math.max(1, Math.round(+row.querySelector("[data-f=kcal]").value || 0)),
+              p: Math.max(0, Math.round(+row.querySelector("[data-f=p]").value || 0)),
+              f: Math.max(0, Math.round(+row.querySelector("[data-f=f]").value || 0)),
+              c: Math.max(0, Math.round(+row.querySelector("[data-f=c]").value || 0)),
+            })),
+        }),
       });
-      if (!chosen || !chosen.length) return;
+      if (!chosen || !chosen.items.length) return;
 
       const s = getState();
-      for (const item of chosen) s.custom.push(item);
+      for (const item of chosen.items) s.custom.push(item);
       setState(s);
-      toast(`Added ${chosen.length} item${chosen.length > 1 ? "s" : ""} from photo`);
+      if (chosen.save) {
+        update("savedFoods", (list) => {
+          const next = [...list];
+          for (const item of chosen.items) {
+            const key = item.name.toLowerCase();
+            const at = next.findIndex((f) => f.name.toLowerCase() === key);
+            if (at >= 0) next[at] = item;
+            else next.push(item);
+          }
+          return next.sort((a, b) => a.name.localeCompare(b.name));
+        });
+      }
+      toast(`Added ${chosen.items.length} item${chosen.items.length > 1 ? "s" : ""}`);
       render();
+    }
+
+    const photoInput = root.querySelector("#photo-input");
+    root.querySelector("#photo-log")?.addEventListener("click", () => photoInput?.click());
+    photoInput?.addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      e.target.value = ""; // let the same photo be picked again after a cancel
+      if (!file) return;
+      await runAiLookup(
+        root.querySelector("#photo-log"), "Reading photo…",
+        "No food was recognized in that photo. Try a clearer, closer shot.",
+        "Photo not analyzed",
+        "Estimated from your photo. Portion size is the least reliable part — correct anything that looks off. The photo was not saved.",
+        () => analyzeMealPhoto(loadApiKey(), file),
+      );
+    });
+
+    const queryInput = root.querySelector("#food-q");
+    const doSearch = () => runAiLookup(
+      root.querySelector("#food-search"), "…",
+      "That didn't look like a food. Try naming the dish and how much.",
+      "Lookup failed",
+      "Typical values for what you described. Check the portion — that's where these are most often wrong.",
+      () => searchFoods(loadApiKey(), queryInput.value),
+    );
+    root.querySelector("#food-search")?.addEventListener("click", doSearch);
+    queryInput?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); doSearch(); }
     });
   }
 
   render();
 }
 
-// Draft from the photo: every item editable and opt-out-able, with the model's
-// own confidence shown so a guessed portion isn't mistaken for a measurement.
-function photoReviewHtml(result) {
+// Draft from a photo or a lookup: every item editable and opt-out-able, with
+// the model's own confidence shown so a guess isn't mistaken for a measurement.
+function mealItemsReviewHtml(result, lead) {
   const rows = result.items.map((item, i) => `
     <div class="photo-item" data-item-row data-name="${esc(item.name)}">
       <label class="photo-item-head">
@@ -346,9 +388,9 @@ function photoReviewHtml(result) {
   `).join("");
 
   return `
-    <p class="hint" style="margin-top:0">Estimated from your photo. Portion size is the least reliable part — correct anything that looks off before adding. Low-confidence items start unticked.</p>
+    <p class="hint" style="margin-top:0">${esc(lead)} Low-confidence items start unticked.</p>
     ${rows}
     ${result.note ? `<p class="coach-why">${esc(result.note)}</p>` : ""}
-    <p class="coach-why">The photo was not saved.</p>
+    <label class="cf-save-row"><input type="checkbox" id="ai-save-foods" /> Save these to My Foods for next time</label>
   `;
 }
