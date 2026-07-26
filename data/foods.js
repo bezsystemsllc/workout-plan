@@ -81,6 +81,60 @@ const DIET_ALLOW = {
 };
 export const fitsDiet = (food, diet) => (DIET_ALLOW[diet] || DIET_ALLOW.omnivore).has(food.diet);
 
+// ── Meal suitability ──────────────────────────────────────────────────────
+// Without this the generator picks foods in array order, which is how salmon
+// ends up at breakfast and eggs at dinner. Each meal asks for a kind, and a
+// food is offered only if it suits that kind.
+//
+//   "breakfast" — morning foods
+//   "snack"     — small, portable, no cooking
+//   "main"      — a cooked lunch or dinner plate
+//
+// Anything not listed here suits every kind (vegetables, most carbs, fats).
+const MEAL_FIT = {
+  // Breakfast proteins carry into snacks; dinner proteins do not belong there.
+  eggs:      ["breakfast", "main"],
+  eggwhite:  ["breakfast", "main"],
+  yogurt:    ["breakfast", "snack"],
+  cottage:   ["breakfast", "snack"],
+  whey:      ["breakfast", "snack"],
+  chicken:   ["main"],
+  turkey:    ["main", "snack"],
+  beef:      ["main"],
+  pork:      ["main"],
+  salmon:    ["main"],
+  tilapia:   ["main"],
+  tuna:      ["main", "snack"],
+  shrimp:    ["main"],
+  tofu:      ["main"],
+  tempeh:    ["main"],
+  edamame:   ["main", "snack"],
+  lentils:   ["main"],
+  beans:     ["main"],
+  chickpeas: ["main", "snack"],
+  // Carbs: oats and bread read as breakfast, rice/pasta/potato as a plate.
+  oats:      ["breakfast", "snack"],
+  bread:     ["breakfast", "main", "snack"],
+  whiterice: ["main"],
+  brownrice: ["main"],
+  potato:    ["main"],
+  sweetpot:  ["main"],
+  pasta:     ["main"],
+  quinoa:    ["main"],
+};
+
+// Which kind of food each meal wants.
+export const MEAL_KIND = {
+  breakfast: "breakfast",
+  "mid-morning": "snack",
+  lunch: "main",
+  "pre-workout": "snack",
+  dinner: "main",
+  evening: "snack",
+};
+
+export const fitsMeal = (food, kind) => !MEAL_FIT[food.id] || MEAL_FIT[food.id].includes(kind);
+
 // Which protein buckets are even possible for a diet (drives the Settings chips).
 export function proteinGroupsForDiet(diet) {
   if (diet === "vegan") return ["soy", "legumes"];
