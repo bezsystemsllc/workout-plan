@@ -164,7 +164,7 @@ export function renderMeals(root) {
         ${savedFoods.length ? `
           <label style="margin-top:10px">Quick-add from My Foods</label>
           <div class="row" style="gap:8px">
-            <select id="cf-saved" style="flex:1">
+            <select id="cf-saved" style="flex:1;min-width:0">
               <option value="">— pick a saved food —</option>
               ${savedFoods.map((f, i) => `<option value="${i}">${esc(f.name)} · ${esc(f.kcal)} kcal</option>`).join("")}
             </select>
