@@ -211,104 +211,11 @@ function requestOrigin(event) {
 }
 
 async function checkRateLimit(key) {
-  const supabase = supabaseConfig();
-  if (supabase) {
-    try {
-      return await checkSupabaseRateLimit(supabase, key);
-    } catch (err) {
-      console.error("rate limit store failed", err);
-      return { ok: false, reason: "store_unavailable", retryAfterMs: 60 * 1000 };
-    }
-  }
-
-  const upstash = upstashConfig();
-  if (upstash) {
-    try {
-      return await checkUpstashRateLimit(upstash, key);
-    } catch (err) {
-      console.error("rate limit store failed", err);
-      return { ok: false, reason: "store_unavailable", retryAfterMs: 60 * 1000 };
-    }
-  }
   if (!memoryFallbackWarned) {
     memoryFallbackWarned = true;
-    console.warn("coach: no Supabase/Upstash configured — in-memory rate limiting is per-instance and best-effort only. Configure a durable store for production (see README).");
+    console.warn("coach: using in-memory rate limiting which is per-instance and best-effort only.");
   }
   return checkMemoryRateLimit(key);
-}
-
-async function checkSupabaseRateLimit(supabase, key) {
-  const now = new Date();
-  const windowSeconds = rateWindowSeconds();
-  const windowMs = windowSeconds * 1000;
-  const windowStamp = Math.floor(now.getTime() / windowMs);
-  const windowResetAt = new Date((windowStamp + 1) * windowMs).toISOString();
-  const dailyResetAt = new Date(now.getTime() + secondsUntilTomorrow(now) * 1000).toISOString();
-  const response = await fetchWithTimeout(`${supabase.url}/rest/v1/rpc/tempo_check_rate_limit`, {
-    method: "POST",
-    headers: supabaseRestHeaders(supabase.key),
-    body: JSON.stringify({
-      p_key: key,
-      p_window_bucket: String(windowStamp),
-      p_window_reset_at: windowResetAt,
-      p_daily_bucket: dateStamp(now),
-      p_daily_reset_at: dailyResetAt,
-      p_window_limit: rateLimit(),
-      p_daily_limit: dailyLimit(),
-    }),
-  }, rateLimitTimeoutMs());
-  const body = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(body?.message || body?.error || `Supabase rate limit failed with ${response.status}`);
-  }
-
-  const result = Array.isArray(body) ? body[0] : body;
-  if (result?.ok === true) return { ok: true };
-  return {
-    ok: false,
-    reason: result?.reason === "daily" ? "daily" : "window",
-    retryAfterMs: Math.max(1000, Number(result?.retryAfterMs ?? result?.retry_after_ms) || 60 * 1000),
-  };
-}
-
-async function checkUpstashRateLimit(upstash, key) {
-  const now = new Date();
-  const windowSeconds = rateWindowSeconds();
-  const windowMs = windowSeconds * 1000;
-  const windowStamp = Math.floor(now.getTime() / windowMs);
-  const windowKey = `tempo:coach:rl:${windowStamp}:${key}`;
-  const dailyKey = `tempo:coach:daily:${dateStamp(now)}:${key}`;
-  const dailySeconds = secondsUntilTomorrow(now);
-  const response = await fetchWithTimeout(`${upstash.url}/multi-exec`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${upstash.token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify([
-      ["INCR", windowKey],
-      ["EXPIRE", windowKey, windowSeconds * 2],
-      ["INCR", dailyKey],
-      ["EXPIRE", dailyKey, dailySeconds],
-    ]),
-  }, rateLimitTimeoutMs());
-  const body = await response.json().catch(() => null);
-  if (!response.ok || !Array.isArray(body) || body.some((item) => item?.error)) {
-    throw new Error(body?.error || `Upstash rate limit failed with ${response.status}`);
-  }
-
-  // Fail closed on malformed counters — a 200 with non-numeric results must
-  // not collapse to count 0 and wave the request through.
-  const windowCount = Number(commandResult(body[0]));
-  const dailyCount = Number(commandResult(body[2]));
-  if (!Number.isFinite(windowCount) || !Number.isFinite(dailyCount)) {
-    throw new Error("Upstash rate limit returned malformed counters");
-  }
-  const windowRetryMs = Math.max(1000, ((windowStamp + 1) * windowMs) - now.getTime());
-
-  if (dailyCount > dailyLimit()) return { ok: false, reason: "daily", retryAfterMs: dailySeconds * 1000 };
-  if (windowCount > rateLimit()) return { ok: false, reason: "window", retryAfterMs: windowRetryMs };
-  return { ok: true };
 }
 
 function checkMemoryRateLimit(key) {
@@ -385,31 +292,7 @@ function hashClientKey(ip) {
   return crypto.createHmac("sha256", salt).update(String(ip)).digest("hex").slice(0, 32);
 }
 
-function upstashConfig() {
-  const url = String(process.env.UPSTASH_REDIS_REST_URL || "").replace(/\/$/, "");
-  const token = String(process.env.UPSTASH_REDIS_REST_TOKEN || "");
-  return url && token ? { url, token } : null;
-}
 
-function supabaseConfig() {
-  const url = String(process.env.SUPABASE_URL || "").replace(/\/$/, "");
-  const key = String(process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
-  return url && key ? { url, key } : null;
-}
-
-function supabaseRestHeaders(key) {
-  const headers = {
-    "apikey": key,
-    "Content-Type": "application/json",
-    "Accept": "application/json",
-  };
-  if (looksLikeJwt(key)) headers.Authorization = `Bearer ${key}`;
-  return headers;
-}
-
-function looksLikeJwt(value) {
-  return String(value || "").split(".").length === 3;
-}
 
 function dateStamp(date) {
   return date.toISOString().slice(0, 10).replaceAll("-", "");
