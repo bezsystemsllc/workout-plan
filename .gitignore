@@ -1,7 +1,7 @@
 # Python cache
 __pycache__/
 *.pyc
-
+.claude/
 # OS / editor noise
 .DS_Store
 Thumbs.db
@@ -17,8 +17,6 @@ Thumbs.db
 netlify.env
 !*.example
 
-# Local Claude Code settings (launch.json is shared, settings.local.json is per-machine)
-.claude/settings.local.json
 
 # Local user data, if anyone exports a backup into the repo
 *.backup.json
