@@ -76,14 +76,39 @@ export function renderToday(root) {
         <div class="m"><b>${consumed.c}g</b><span>Carbs / ${targets.c}g</span></div>
         <div class="m"><b>${targets.kcal - consumed.kcal}</b><span>kcal left</span></div>
       </div>
-      <div style="margin-top:12px">
-        <div class="spread small"><span>💧 Water</span><span><b>${showWater(mealsState.waterMl || 0)}</b> / ${showWater(waterTargetMlVal)} ${waterUnit}</span></div>
-        <div class="bar" style="margin-top:4px"><span style="width:${pct(mealsState.waterMl || 0, waterTargetMlVal)}%"></span></div>
-        <div class="water-quick-row" style="margin-top:8px;display:flex;gap:6px">
-          <button class="ghost small water-btn" data-add-water="${metric ? 250 : 237}">+${metric ? "250mL" : "8oz"}</button>
-          <button class="ghost small water-btn" data-add-water="${metric ? 500 : 473}">+${metric ? "500mL" : "16oz"}</button>
-          <button class="ghost small water-btn" data-add-water="${metric ? 750 : 710}">+${metric ? "750mL" : "24oz"}</button>
-          <button class="ghost small water-btn" data-reset-water title="Reset water" style="padding:4px 8px">↺</button>
+      <div class="water-tracker">
+        <div class="water-stats-row">
+          <span style="font-weight:600">💧 Daily Hydration</span>
+          <span><b class="water-amount-current">${showWater(mealsState.waterMl || 0)}</b> / ${showWater(waterTargetMlVal)} ${waterUnit} (${pct(mealsState.waterMl || 0, waterTargetMlVal)}%)</span>
+        </div>
+        <div class="water-bar-track">
+          <div class="water-bar-fill" style="width:${pct(mealsState.waterMl || 0, waterTargetMlVal)}%"></div>
+        </div>
+        <div class="hint" style="margin:2px 0 6px 0;font-size:12px">
+          ${(mealsState.waterMl || 0) >= waterTargetMlVal ? "✨ Daily target hit! Hydration on point." : `${showWater(Math.max(0, waterTargetMlVal - (mealsState.waterMl || 0)))} ${waterUnit} left today`}
+        </div>
+
+        <div class="water-grid">
+          <button class="water-tile" type="button" data-add-water="${metric ? 250 : 237}" title="Add 1 glass">
+            <span class="water-tile-icon">🥛</span>
+            <span class="water-tile-val">+${metric ? "250" : "8"}</span>
+            <span class="water-tile-sub">Glass</span>
+          </button>
+          <button class="water-tile" type="button" data-add-water="${metric ? 500 : 473}" title="Add 1 bottle">
+            <span class="water-tile-icon">💧</span>
+            <span class="water-tile-val">+${metric ? "500" : "16"}</span>
+            <span class="water-tile-sub">Bottle</span>
+          </button>
+          <button class="water-tile" type="button" data-add-water="${metric ? 750 : 710}" title="Add 1 shaker">
+            <span class="water-tile-icon">🥤</span>
+            <span class="water-tile-val">+${metric ? "750" : "24"}</span>
+            <span class="water-tile-sub">Shaker</span>
+          </button>
+          <button class="water-tile undo-tile" type="button" data-add-water="${metric ? -250 : -237}" title="Undo 1 glass">
+            <span class="water-tile-icon">↩️</span>
+            <span class="water-tile-val">−${metric ? "250" : "8"}</span>
+            <span class="water-tile-sub">Undo</span>
+          </button>
         </div>
       </div>
       ${nextMeal ? `
@@ -105,22 +130,15 @@ export function renderToday(root) {
       const ml = +b.dataset.addWater;
       update("meals", (all) => {
         const cur = all[today] || { checked: [], custom: [], waterMl: 0 };
-        const nextMl = (cur.waterMl || 0) + ml;
+        const nextMl = Math.max(0, (cur.waterMl || 0) + ml);
         return { ...all, [today]: { ...cur, waterMl: nextMl } };
       });
-      toast(`+${showWater(ml)} ${waterUnit} water logged 💧`);
+      const absAmount = showWater(Math.abs(ml));
+      const msg = ml > 0 ? `+${absAmount} ${waterUnit} water logged 💧` : `−${absAmount} ${waterUnit} removed`;
+      toast(msg);
       renderToday(root);
     });
   }
-
-  root.querySelector("button[data-reset-water]")?.addEventListener("click", () => {
-    update("meals", (all) => {
-      const cur = all[today] || { checked: [], custom: [], waterMl: 0 };
-      return { ...all, [today]: { ...cur, waterMl: 0 } };
-    });
-    toast("Water reset to 0");
-    renderToday(root);
-  });
   root.querySelector("#coach-review")?.addEventListener("click", async (event) => {
     const btn = event.currentTarget;
     const previousLabel = btn.textContent;

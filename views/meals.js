@@ -98,19 +98,43 @@ export function renderMeals(root) {
 
       <section class="card">
         <div class="spread">
-          <h2 style="margin:0">💧 Water</h2>
+          <h2 style="margin:0">💧 Water Intake</h2>
           <span class="muted small">${trainingDay ? "training day +" : ""}${profile?.goal === "fat_loss" ? " cut bonus" : profile?.goal === "muscle" ? " bulk bonus" : ""}</span>
         </div>
-        <div style="margin-top:10px">
-          <div class="spread small"><span>Intake</span><span><b>${showWater(state.waterMl)}</b> / ${showWater(waterTargetMlVal)} ${waterUnit}</span></div>
-          <div class="bar" style="margin-top:4px"><span style="width:${pct(state.waterMl, waterTargetMlVal)}%"></span></div>
-          <div class="hint">${state.waterMl >= waterTargetMlVal ? "Target hit. Nice." : `${showWater(waterTargetMlVal - state.waterMl)} ${waterUnit} to go`}</div>
-        </div>
-        <div class="row" style="margin-top:10px;justify-content:space-between;gap:6px">
-          <button id="w-minus" style="flex:0.8">− ${waterStep} ${waterUnit}</button>
-          <button class="primary" id="w-cup" style="flex:1.2">+ ${metric ? "250 mL" : "8 oz"}</button>
-          <button id="w-bottle" style="flex:1.2">+ ${metric ? "500 mL" : "16 oz"}</button>
-          <button id="w-shaker" style="flex:1.2">+ ${metric ? "750 mL" : "24 oz"}</button>
+        <div class="water-tracker" style="margin-top:10px">
+          <div class="water-stats-row">
+            <span>Intake</span>
+            <span><b class="water-amount-current">${showWater(state.waterMl)}</b> / ${showWater(waterTargetMlVal)} ${waterUnit} (${pct(state.waterMl, waterTargetMlVal)}%)</span>
+          </div>
+          <div class="water-bar-track">
+            <div class="water-bar-fill" style="width:${pct(state.waterMl, waterTargetMlVal)}%"></div>
+          </div>
+          <div class="hint" style="margin:2px 0 8px 0;font-size:12px">
+            ${state.waterMl >= waterTargetMlVal ? "✨ Daily target hit! Hydration on point." : `${showWater(Math.max(0, waterTargetMlVal - state.waterMl))} ${waterUnit} to go`}
+          </div>
+
+          <div class="water-grid">
+            <button class="water-tile" type="button" id="w-cup" title="Add 1 glass">
+              <span class="water-tile-icon">🥛</span>
+              <span class="water-tile-val">+${metric ? "250" : "8"}</span>
+              <span class="water-tile-sub">Glass</span>
+            </button>
+            <button class="water-tile" type="button" id="w-bottle" title="Add 1 bottle">
+              <span class="water-tile-icon">💧</span>
+              <span class="water-tile-val">+${metric ? "500" : "16"}</span>
+              <span class="water-tile-sub">Bottle</span>
+            </button>
+            <button class="water-tile" type="button" id="w-shaker" title="Add 1 shaker">
+              <span class="water-tile-icon">🥤</span>
+              <span class="water-tile-val">+${metric ? "750" : "24"}</span>
+              <span class="water-tile-sub">Shaker</span>
+            </button>
+            <button class="water-tile undo-tile" type="button" id="w-minus" title="Undo 1 glass">
+              <span class="water-tile-icon">↩️</span>
+              <span class="water-tile-val">−${metric ? "250" : "8"}</span>
+              <span class="water-tile-sub">Undo</span>
+            </button>
+          </div>
         </div>
       </section>
 
@@ -194,6 +218,9 @@ export function renderMeals(root) {
       const s = getState();
       s.waterMl = Math.max(0, s.waterMl + deltaMl);
       setState(s);
+      const absAmount = showWater(Math.abs(deltaMl));
+      const msg = deltaMl > 0 ? `+${absAmount} ${waterUnit} water logged 💧` : `−${absAmount} ${waterUnit} removed`;
+      toast(msg);
       render();
     };
     root.querySelector("#w-cup")?.addEventListener("click", () => bumpWater(250));
