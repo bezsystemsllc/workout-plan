@@ -40,15 +40,28 @@ function route() {
   for (const el of document.querySelectorAll(".tab")) {
     el.classList.toggle("active", el.dataset.tab === tab);
   }
-  APP.innerHTML = "";
-  try {
-    def.render(APP, { onboarding: needsOnboarding, requestedTab });
-  } catch (e) {
-    console.error("View failed to render:", e);
-    APP.innerHTML = `<section class="card"><h2>Something went wrong</h2><p class="hint">The app hit an error rendering this page — your data is safe.</p><button class="primary" id="err-reload" style="width:100%;margin-top:10px">Reload app</button></section>`;
-    APP.querySelector("#err-reload").addEventListener("click", () => location.reload());
+
+  const renderContent = () => {
+    APP.innerHTML = "";
+    try {
+      def.render(APP, { onboarding: needsOnboarding, requestedTab });
+    } catch (e) {
+      console.error("View failed to render:", e);
+      APP.innerHTML = `<section class="card"><h2>Something went wrong</h2><p class="hint">The app hit an error rendering this page — your data is safe.</p><button class="primary" id="err-reload" style="width:100%;margin-top:10px">Reload app</button></section>`;
+      APP.querySelector("#err-reload").addEventListener("click", () => location.reload());
+    }
+    window.scrollTo(0, 0);
+  };
+
+  if (APP.innerHTML.trim() !== "") {
+    APP.classList.add("fade-out");
+    setTimeout(() => {
+      renderContent();
+      APP.classList.remove("fade-out");
+    }, 150);
+  } else {
+    renderContent();
   }
-  window.scrollTo(0, 0);
 }
 
 // Back/forward buttons
