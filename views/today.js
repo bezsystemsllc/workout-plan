@@ -7,7 +7,7 @@ import { getActiveSuggestions, dismissSuggestion } from "../lib/adaptations.js";
 import { applyCoachChanges, planCoachChanges, latestCoachReview, requestCoachReview, COACH_NOTE_TTL_DAYS } from "../lib/coach.js";
 import { esc } from "../lib/html.js";
 import { confirmForm, notify, toast } from "../lib/modal.js";
-import { load, todayISO, weekdayKey } from "../storage.js";
+import { load, update, todayISO, weekdayKey } from "../storage.js";
 import { navigate } from "../app.js";
 import { aiProgressHtml, setAiProgress } from "../lib/ai-progress.js";
 
@@ -79,6 +79,12 @@ export function renderToday(root) {
       <div style="margin-top:12px">
         <div class="spread small"><span>💧 Water</span><span><b>${showWater(mealsState.waterMl || 0)}</b> / ${showWater(waterTargetMlVal)} ${waterUnit}</span></div>
         <div class="bar" style="margin-top:4px"><span style="width:${pct(mealsState.waterMl || 0, waterTargetMlVal)}%"></span></div>
+        <div class="water-quick-row" style="margin-top:8px;display:flex;gap:6px">
+          <button class="ghost small water-btn" data-add-water="${metric ? 250 : 237}">+${metric ? "250mL" : "8oz"}</button>
+          <button class="ghost small water-btn" data-add-water="${metric ? 500 : 473}">+${metric ? "500mL" : "16oz"}</button>
+          <button class="ghost small water-btn" data-add-water="${metric ? 750 : 710}">+${metric ? "750mL" : "24oz"}</button>
+          <button class="ghost small water-btn" data-reset-water title="Reset water" style="padding:4px 8px">↺</button>
+        </div>
       </div>
       ${nextMeal ? `
         <div class="next-meal">
@@ -93,6 +99,28 @@ export function renderToday(root) {
 
   root.querySelector("#go-meals")?.addEventListener("click", () => navigate("meals"));
   root.querySelector("#go-workout")?.addEventListener("click", () => navigate("workout"));
+
+  for (const b of root.querySelectorAll("button[data-add-water]")) {
+    b.addEventListener("click", () => {
+      const ml = +b.dataset.addWater;
+      update("meals", (all) => {
+        const cur = all[today] || { checked: [], custom: [], waterMl: 0 };
+        const nextMl = (cur.waterMl || 0) + ml;
+        return { ...all, [today]: { ...cur, waterMl: nextMl } };
+      });
+      toast(`+${showWater(ml)} ${waterUnit} water logged 💧`);
+      renderToday(root);
+    });
+  }
+
+  root.querySelector("button[data-reset-water]")?.addEventListener("click", () => {
+    update("meals", (all) => {
+      const cur = all[today] || { checked: [], custom: [], waterMl: 0 };
+      return { ...all, [today]: { ...cur, waterMl: 0 } };
+    });
+    toast("Water reset to 0");
+    renderToday(root);
+  });
   root.querySelector("#coach-review")?.addEventListener("click", async (event) => {
     const btn = event.currentTarget;
     const previousLabel = btn.textContent;

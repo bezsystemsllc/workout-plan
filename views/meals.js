@@ -107,9 +107,10 @@ export function renderMeals(root) {
           <div class="hint">${state.waterMl >= waterTargetMlVal ? "Target hit. Nice." : `${showWater(waterTargetMlVal - state.waterMl)} ${waterUnit} to go`}</div>
         </div>
         <div class="row" style="margin-top:10px;justify-content:space-between;gap:6px">
-          <button id="w-minus" style="flex:1">− ${waterStep} ${waterUnit}</button>
-          <button class="primary" id="w-cup" style="flex:1.4">+ 1 cup (${metric ? "250 mL" : "8 oz"})</button>
-          <button id="w-bottle" style="flex:1">+ ${metric ? "500 mL" : "16 oz"}</button>
+          <button id="w-minus" style="flex:0.8">− ${waterStep} ${waterUnit}</button>
+          <button class="primary" id="w-cup" style="flex:1.2">+ ${metric ? "250 mL" : "8 oz"}</button>
+          <button id="w-bottle" style="flex:1.2">+ ${metric ? "500 mL" : "16 oz"}</button>
+          <button id="w-shaker" style="flex:1.2">+ ${metric ? "750 mL" : "24 oz"}</button>
         </div>
       </section>
 
@@ -197,6 +198,7 @@ export function renderMeals(root) {
     };
     root.querySelector("#w-cup")?.addEventListener("click", () => bumpWater(250));
     root.querySelector("#w-bottle")?.addEventListener("click", () => bumpWater(500));
+    root.querySelector("#w-shaker")?.addEventListener("click", () => bumpWater(750));
     root.querySelector("#w-minus")?.addEventListener("click", () => bumpWater(metric ? -250 : -237));
 
     root.querySelector("#shuffle-meals")?.addEventListener("click", () => {

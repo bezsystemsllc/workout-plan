@@ -135,6 +135,35 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     `;
   }
 
+  function themePickerCard() {
+    const currentTheme = localStorage.getItem("tempo_theme") || "emerald";
+    const themes = [
+      { id: "emerald", name: "Emerald Cyber", desc: "Dark neon green", accent: "#10b981" },
+      { id: "oled", name: "OLED Midnight", desc: "Pure black & cyan", accent: "#38bdf8" },
+      { id: "amber", name: "Sunset Amber", desc: "Charcoal & warm gold", accent: "#f59e0b" },
+      { id: "light", name: "Frost Light", desc: "Crisp daylight", accent: "#059669" },
+    ];
+
+    return `
+      <section class="card" style="margin-top:14px">
+        <h2>Appearance & Theme</h2>
+        <p class="hint">Personalize your color palette and display aesthetics.</p>
+        <div class="theme-picker-grid">
+          ${themes.map(t => `
+            <div class="theme-card ${currentTheme === t.id ? "active" : ""}" data-set-theme="${t.id}">
+              <div class="theme-swatch" style="background: ${t.accent}; border-color: ${t.accent}"></div>
+              <div>
+                <b style="font-size:13px;display:block">${t.name}</b>
+                <span class="muted small">${t.desc}</span>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      </section>
+    `;
+  }
+
+
   // Food-preferences step — drives the meal generator.
   function foodCard() {
     const proteins = proteinGroupsForDiet(draftFood.diet);
@@ -268,6 +297,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       <div class="wiz-head"></div>
       <div class="wizard"><div class="wizard-track">${steps.map(s => `<div class="wizard-step">${s.html}</div>`).join("")}</div></div>
       <div class="wiz-nav"></div>
+      ${!isOnboarding ? themePickerCard() : ""}
       ${!isOnboarding ? coachKeyCard() : ""}
       ${!isOnboarding ? `<button class="ghost danger" id="f-reset" style="width:100%;margin-top:10px">Reset all data</button>` : ""}
     `;
@@ -396,6 +426,16 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       toast("Coach key removed");
       rerender();
     });
+    for (const card of root.querySelectorAll("[data-set-theme]")) {
+      card.addEventListener("click", () => {
+        const themeId = card.dataset.setTheme;
+        localStorage.setItem("tempo_theme", themeId);
+        document.documentElement.setAttribute("data-theme", themeId);
+        toast(`Applied ${themeId} theme`);
+        rerender();
+      });
+    }
+
     root.querySelector("#f-reset")?.addEventListener("click", doReset);
     root.querySelector("#starter-plan")?.addEventListener("click", doStarterPlan);
 

@@ -9,6 +9,12 @@ import { openInfo } from "./lib/modal.js";
 
 const APP = document.getElementById("app");
 
+// Initialize saved color theme
+const savedTheme = localStorage.getItem("tempo_theme");
+if (savedTheme) {
+  document.documentElement.setAttribute("data-theme", savedTheme);
+}
+
 const ROUTES = {
   today: { title: "Today", render: renderToday },
   workout: { title: "Workout", render: renderWorkout },

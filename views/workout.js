@@ -8,6 +8,8 @@ import { dateNavHtml, wireDateNav } from "../lib/date-nav.js";
 import { esc } from "../lib/html.js";
 import { load, update, todayISO } from "../storage.js";
 import { mountTimer } from "./timer.js";
+import { openPlateCalculator } from "../lib/plate-calc.js";
+import { checkSetForPR, launchConfetti, getAllTimePRs } from "../lib/records.js";
 
 export function renderWorkout(root) {
   let viewedDate = todayISO();
@@ -182,12 +184,54 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
       return;
     }
 
+    // Check for Lifetime Personal Record (PR)
+    const pr = checkSetForPR(activeSet.meta.name, loadEl.value, repsEl.value, allWorkouts, dateKey, si);
+
     setSession(session);
     const done = !findActiveSet(itemsAfter(session, items));
-    toast(done ? "Workout complete" : "Set saved");
+
+    if (pr.isPR) {
+      launchConfetti();
+      toast(`🏆 NEW PR: ${activeSet.meta.name} — ${pr.label}!`);
+      if (navigator.vibrate) navigator.vibrate([100, 60, 150, 60, 250]);
+    } else {
+      toast(done ? "Workout complete" : "Set saved");
+    }
+
     rerender();
-    if (!done) mountTimer(activeSet.meta.rest || 90);
+    if (!done) mountTimer(activeSet.meta.rest || 90, { exerciseName: `Rest: ${activeSet.meta.name}` });
   });
+
+  root.querySelector("#open-plate-calc")?.addEventListener("click", () => {
+    const loadEl = root.querySelector("[data-guide-field='w']");
+    const currentVal = loadEl?.value || activeSet?.meta?.targetW || (starterContext?.units === "metric" ? 60 : 135);
+    openPlateCalculator({
+      targetWeight: currentVal,
+      metric: starterContext?.units === "metric",
+      exerciseName: activeSet?.meta?.name || "Barbell Lift",
+      onApply: (w) => {
+        if (loadEl) {
+          loadEl.value = w;
+          const ei = +loadEl.dataset.ei;
+          const si = +loadEl.dataset.si;
+          if (session.exercises[ei]?.sets[si]) {
+            session.exercises[ei].sets[si].w = w;
+            setSession(session);
+          }
+        }
+      },
+    });
+  });
+
+  for (const btn of root.querySelectorAll("button[data-open-plates]")) {
+    btn.addEventListener("click", () => {
+      openPlateCalculator({
+        targetWeight: btn.dataset.targetW || (starterContext?.units === "metric" ? 60 : 135),
+        metric: starterContext?.units === "metric",
+        exerciseName: btn.dataset.openPlates,
+      });
+    });
+  }
 
   for (const btn of root.querySelectorAll("button[data-rest]")) {
     btn.addEventListener("click", () => mountTimer(+btn.dataset.rest));
@@ -312,6 +356,8 @@ function renderGuidedSet(activeSet, items, lastSession, day, allWorkouts, progre
   const targetR = prog.target?.r ?? "";
   const lastLbl = lastSet && (lastSet.w || lastSet.r) ? `${lastSet.w || "-"} x ${lastSet.r || "-"}` : "-";
   const hasNext = !!nextSetAfter(items, ei, si);
+  const isBarbell = (meta.equip || []).some(e => ["barbell", "ezbar"].includes(e)) ||
+    /barbell|bench press|squat|deadlift|overhead press|row/i.test(meta.name);
 
   return `
     <section class="card guided-set">
@@ -333,7 +379,10 @@ function renderGuidedSet(activeSet, items, lastSession, day, allWorkouts, progre
       </div>
       <div class="guided-inputs">
         <label>
-          <span>${esc(loadInput.label)}</span>
+          <div class="spread">
+            <span>${esc(loadInput.label)}</span>
+            ${isBarbell ? `<button class="ghost link-btn" type="button" id="open-plate-calc" style="padding:0 4px;font-size:11px;min-height:22px;color:var(--accent);background:transparent">🧮 Plates & Warmup</button>` : ""}
+          </div>
           <input type="${loadInput.type}" inputmode="${loadInput.inputmode}" ${loadInput.type === "number" ? 'step="0.5" min="0"' : ""} data-guide-field="w" data-ei="${ei}" data-si="${si}" data-field="w" value="${esc(current.w)}" placeholder="${esc(targetW || lastSet?.w || "")}" />
         </label>
         <label>
@@ -357,6 +406,10 @@ function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, progressionH
   const tR = prog.target?.r ?? "";
   const loadInput = loadInputFor(meta, starterContext?.units);
   const alts = canCustomize ? alternativesFor(meta, equipment) : [];
+  const isBarbell = (meta.equip || []).some(e => ["barbell", "ezbar"].includes(e)) ||
+    /barbell|bench press|squat|deadlift|overhead press|row/i.test(meta.name);
+  const allTimePRs = getAllTimePRs(allWorkouts);
+  const exPR = allTimePRs[meta.name];
 
   return `
     <section class="card exercise" data-ex="${ei}">
@@ -390,9 +443,10 @@ function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, progressionH
       ${logged.sets.map((s, si) => {
         const l = lastSets[si];
         const lastLbl = l && (l.w || l.r) ? `${l.w || "—"}×${l.r || "—"}` : "—";
+        const isPR = exPR && s.w && s.r && (+s.w >= exPR.maxWeight || (s.w * (1 + s.r/30)) >= exPR.best1RM);
         return `
           <div class="set-row">
-            <span class="idx">${si + 1}</span>
+            <span class="idx">${si + 1} ${isPR ? `<span class="pr-badge" title="Lifetime PR">🏆</span>` : ""}</span>
             <input type="${loadInput.type}" inputmode="${loadInput.inputmode}" ${loadInput.type === "number" ? 'step="0.5" min="0"' : ""} data-ei="${ei}" data-si="${si}" data-field="w" value="${esc(s.w)}" placeholder="${esc(tW || l?.w || "")}" />
             <input type="number" inputmode="numeric" min="0" data-ei="${ei}" data-si="${si}" data-field="r" value="${esc(s.r)}" placeholder="${esc(tR || l?.r || "")}" />
             <span class="last">${esc(lastLbl)}</span>
@@ -405,6 +459,7 @@ function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, progressionH
           ${logged.sets.length > 1 ? `<button class="ghost small" data-rmset="${ei}">－ set</button>` : ""}
           <button class="ghost small" data-rmex="${ei}" title="Remove exercise" aria-label="Remove ${esc(meta.name)}">✕</button>
         ` : ""}
+        ${isBarbell ? `<button class="ghost small" data-open-plates="${esc(meta.name)}" data-target-w="${esc(tW || lastSets[0]?.w || "")}">🧮 Plates</button>` : ""}
         <button class="ghost small" data-rest="${esc(meta.rest)}">⏱ ${esc(meta.rest)}s rest</button>
       </div>
     </section>
