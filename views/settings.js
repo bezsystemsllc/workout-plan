@@ -12,6 +12,8 @@ import { DIETS, PROTEIN_GROUPS, CARB_GROUPS, ALLERGENS, proteinGroupsForDiet } f
 import { DEFAULT_FOOD_PREFS } from "../lib/meals.js";
 import { notify, confirmAction, toast } from "../lib/modal.js";
 import { esc } from "../lib/html.js";
+import { matchWorkoutRoutine } from "../lib/workout-ai.js";
+import { compareProgressPhotos } from "../lib/progress-photo-ai.js";
 import { navigate } from "../app.js";
 
 const WEEKDAYS = [["mon","Mon"],["tue","Tue"],["wed","Wed"],["thu","Thu"],["fri","Fri"],["sat","Sat"],["sun","Sun"]];
@@ -42,6 +44,8 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     : buildSplits(draftPrefs.style, draftPrefs.daysPerWeek, draft.goal);
   let draftFood = { ...DEFAULT_FOOD_PREFS, ...(settings.foodPrefs || {}) };
   let step = 0; // current wizard step (persists across rerenders)
+  let routine = "";
+  let routineMatch = null;
 
   function resetSplits() {
     draftSplits = buildSplits(draftPrefs.style, draftPrefs.daysPerWeek, draft.goal);
@@ -60,6 +64,12 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       <section class="card">
         <h2>Training plan</h2>
         <p class="hint">Built from these plus your goal (${GOAL[draft.goal].label}). Swap exercises and tweak sets anytime on the Workout tab.</p>
+
+        <label for="workout-routine">Describe your workout routine</label>
+        <p class="hint" id="workout-routine-hint">List the exercises you want, such as push-ups, pull-ups, deadlifts, or bench press. Add how many days you train if you know. Tempo will pick a template and fill in the rest using your equipment.</p>
+        <textarea id="workout-routine" rows="3" maxlength="800" aria-describedby="workout-routine-hint">${esc(routine)}</textarea>
+        <button id="match-workout" type="button">Suggest template with AI</button>
+        <p class="hint" id="workout-match-status" role="status">${routineMatch ? "Template selected. Review your choices below and save to rebuild your workouts." : "Uses your saved OpenAI key."}</p>
 
         <h3>Lifting days / week</h3>
         <div class="seg">
@@ -306,6 +316,29 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       <div class="wiz-nav"></div>
       ${!isOnboarding ? themePickerCard() : ""}
       ${!isOnboarding ? coachKeyCard() : ""}
+      ${!isOnboarding ? `
+        <section class="card">
+          <h2>Progress photos</h2>
+          <p class="hint">Choose an earlier and a recent photo in similar lighting, clothing, and poses. Tempo sends both photos directly to OpenAI using your saved key when you compare them. Tempo does not save the photos.</p>
+          <form id="progress-photo-form">
+            <fieldset class="progress-photo-fields">
+              <label>Earlier photo <input type="file" name="earlier" accept="image/*" required></label>
+              <label>Recent photo <input type="file" name="recent" accept="image/*" required></label>
+              <label>Training notes (optional)
+                <textarea name="notes" rows="2" maxlength="800" placeholder="Time between photos, workouts per week, or lifts that have stalled"></textarea>
+              </label>
+              <button type="submit">Compare photos with AI</button>
+            </fieldset>
+          </form>
+          <p id="progress-photo-status" class="hint" role="status"></p>
+          <div id="progress-photo-result" hidden>
+            <h3>Visible changes</h3>
+            <p data-photo-comparison></p>
+            <h3>Training guidance</h3>
+            <p data-photo-advice></p>
+            <button type="button" data-photo-routine hidden>Use suggestion in Training</button>
+          </div>
+        </section>` : ""}
       ${!isOnboarding ? `<button class="ghost danger" id="f-reset" style="width:100%;margin-top:10px">Reset all data</button>` : ""}
     `;
 
@@ -397,6 +430,42 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       draftPrefs.equipment = draftPrefs.equipment.includes(k) ? draftPrefs.equipment.filter(x => x !== k) : [...draftPrefs.equipment, k];
       rerender();
     });
+    const routineInput = root.querySelector("#workout-routine");
+    const matchButton = root.querySelector("#match-workout");
+    const matchStatus = root.querySelector("#workout-match-status");
+    routineInput.addEventListener("input", () => { routine = routineInput.value; });
+    matchButton.addEventListener("click", async () => {
+      const description = routine.trim();
+      if (!description) {
+        matchStatus.textContent = "Describe your routine first.";
+        routineInput.focus();
+        return;
+      }
+      const apiKey = loadApiKey();
+      if (!apiKey) {
+        matchStatus.textContent = "Save an OpenAI key in Settings to use this feature.";
+        return;
+      }
+      matchButton.disabled = true;
+      routineInput.readOnly = true;
+      matchStatus.textContent = "Finding a workout template…";
+      try {
+        const match = await matchWorkoutRoutine(apiKey, description, draftPrefs);
+        if (!matchButton.isConnected) return;
+        const style = match.daysPerWeek === 2 && match.style === "ppl" ? "full" : match.style;
+        const scheduleChanged = style !== draftPrefs.style || match.daysPerWeek !== draftPrefs.daysPerWeek;
+        draftPrefs.style = style;
+        draftPrefs.daysPerWeek = match.daysPerWeek;
+        routineMatch = match;
+        if (scheduleChanged) resetSplits();
+        rerender();
+      } catch (error) {
+        if (matchButton.isConnected) matchStatus.textContent = error.message || "Tempo couldn’t match that routine. Try again.";
+      } finally {
+        matchButton.disabled = false;
+        routineInput.readOnly = false;
+      }
+    });
     for (const sel of root.querySelectorAll("select[data-day]")) sel.addEventListener("change", (e) => {
       draftSplits = { ...draftSplits, [e.target.dataset.day]: dayFromToken(e.target.value, draft.goal) };
     });
@@ -432,6 +501,50 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       saveApiKey("");
       toast("Coach key removed");
       rerender();
+    });
+    root.querySelector("#progress-photo-form")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const status = root.querySelector("#progress-photo-status");
+      const result = root.querySelector("#progress-photo-result");
+      result.hidden = true;
+      const apiKey = loadApiKey();
+      if (!apiKey) {
+        status.textContent = "Save an OpenAI key in Settings to compare your photos.";
+        return;
+      }
+      const files = new FormData(form);
+      const fields = form.querySelector("fieldset");
+      fields.disabled = true;
+      status.textContent = "Comparing your photos…";
+      try {
+        const review = await compareProgressPhotos(apiKey, files.get("earlier"), files.get("recent"), {
+          goal: draft.goal,
+          split: STYLE_OPTIONS[draftPrefs.style].label,
+          daysPerWeek: draftPrefs.daysPerWeek,
+          equipment: draftPrefs.equipment.map(id => EQUIPMENT[id]).filter(Boolean),
+          notes: String(files.get("notes") || "").trim().slice(0, 800),
+        });
+        if (!form.isConnected) return;
+        result.querySelector("[data-photo-comparison]").textContent = review.comparison;
+        result.querySelector("[data-photo-advice]").textContent = review.advice;
+        const useRoutine = result.querySelector("[data-photo-routine]");
+        useRoutine.hidden = !review.routine;
+        useRoutine.onclick = () => {
+          routine = review.routine;
+          routineMatch = null;
+          step = steps.findIndex(item => item.title === "Training");
+          rerender();
+          window.scrollTo({ top: 0 });
+        };
+        result.hidden = false;
+        status.textContent = "Photo comparison ready.";
+        form.reset();
+      } catch (error) {
+        status.textContent = error.message || "The photo comparison failed. Try again.";
+      } finally {
+        fields.disabled = false;
+      }
     });
     for (const card of root.querySelectorAll("[data-set-theme]")) {
       card.addEventListener("click", () => {
@@ -471,8 +584,10 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     const targetWeightLb = projectTargetWeightLb(draft);
     // Keep the existing seed unless this is the first plan.
     const seed = settings.plan?.meta?.seed ?? Math.floor(Math.random() * 1000000);
-    const preserve = equipmentChanged() ? null : settings.plan;
-    const plan = generatePlan({ ...draftPrefs, splits }, draft, { preserve, seed });
+    const preserve = equipmentChanged() || routineMatch ? null : settings.plan;
+    const plan = generatePlan({ ...draftPrefs, splits }, draft, {
+      preserve, seed, exerciseIds: routineMatch?.exerciseIds,
+    });
     update("settings", (s) => ({
       ...s,
       profile: { ...draft },
