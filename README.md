@@ -2,7 +2,7 @@
 
 > A dependency-free, installable workout & nutrition tracker that builds a training plan around **your** goal, schedule, and equipment — then adapts as you progress.
 
-Tempo is a mobile-first **PWA** with **no frameworks and no accounts**. Core tracking runs in the browser, works offline, and stores data locally. An optional AI coach uses a Netlify Function when enabled.
+Tempo is a mobile-first **PWA** with **no frameworks and no accounts**. Core tracking runs in the browser, works offline, and stores data locally. Optional AI features use your own OpenAI key.
 
 ## Features
 
@@ -20,7 +20,7 @@ Tempo is a mobile-first **PWA** with **no frameworks and no accounts**. Core tra
 ## Tech stack
 
 - **Vanilla JavaScript** (ES modules), HTML, and CSS — **no build step, no dependencies, no npm install**.
-- Optional Netlify Function for AI coach reviews.
+- Optional AI features call OpenAI directly from your browser.
 - State persisted to `localStorage` with JSON export/import.
 - Client-side routing via the History API (clean `/workout`-style URLs).
 - **PWA** — web app manifest + service worker (offline app-shell cache), no install libraries.
@@ -35,7 +35,7 @@ python3 serve.py 8753
 # open http://localhost:8753
 ```
 
-`serve.py` is a tiny stdlib-only dev server that adds no-cache headers and an SPA fallback so deep links like `/workout` work on refresh. Any static server works, but with plain `python3 -m http.server` refreshing a deep link will 404. The optional AI coach button requires Netlify Functions, so it only runs on the deployed Netlify site or a Netlify local dev server.
+`serve.py` is a tiny stdlib-only dev server that adds no-cache headers and an SPA fallback so deep links like `/workout` work on refresh. Any static server works, but with plain `python3 -m http.server` refreshing a deep link will 404.
 
 There is nothing to build or install.
 
@@ -110,26 +110,11 @@ Netlify settings:
 
 - Build command: leave blank
 - Publish directory: `.`
-- Function directory: handled by `netlify.toml`
-- Environment import template: copy [`netlify.env.example`](netlify.env.example) to `netlify.env`, fill in real values, then import `netlify.env` into Netlify.
-- Environment variables: set `OPENAI_API_KEY` to enable **Coach review** for everyone. Optional: set `OPENAI_MODEL` to choose the model; otherwise the function uses `gpt-6-luna`. Workout setup, progress photos, meal analysis, and personal-key coach reviews use `gpt-6-luna` directly.
-- **Who pays for coach reviews** — three modes, same build:
-  - *Owner-funded* — set `OPENAI_API_KEY`. Every visitor shares your quota, capped by the rate limits below.
-  - *Bring-your-own-key* — set **no** `OPENAI_API_KEY`. Coach review stays disabled until a user saves their own key under **Settings → AI coach key**, and it then runs on their OpenAI account at their cost.
-  - *Hybrid* — set `OPENAI_API_KEY` as a limited free tier; any user who saves their own key bypasses your quota automatically.
-- A user key **never reaches the server**: when one is saved, the browser calls `api.openai.com` directly and the Netlify Function is bypassed entirely, so there is no request shape that can carry a user key into your infrastructure or your platform logs. Keys are stored under their own `localStorage` entry, excluded from backup exports, and removed by **Reset all data**. This is why `connect-src` in [`_headers`](_headers) allows `https://api.openai.com`.
-- Because the browser builds that request itself, the model prompt and JSON schema exist twice — [`lib/coach-contract.js`](lib/coach-contract.js) for the browser and [`netlify/functions/coach.js`](netlify/functions/coach.js) for the owner-funded path. There is no build step to share them, so run `node scripts/check-coach-contract.mjs` after editing either; it fails if they drift. Whichever path answers, the response is clamped by the same `normalizeRecommendation` before anything is applied.
-- Abuse controls: coach calls are rate-limited by client IP before any OpenAI call is made. Set `COACH_RATE_LIMIT` for requests per window, `COACH_RATE_WINDOW_SECONDS` for the window size, and `COACH_DAILY_LIMIT` for the daily cap. Defaults: `5` requests per `900` seconds and `20` requests per day.
-- Rate limit store: the function uses an in-memory rate limiting mechanism which is best-effort on serverless cold starts.
-- Optional origin guard: set `COACH_ALLOWED_ORIGIN` to your deployed site origin, such as `https://your-site.netlify.app` or your custom domain. Multiple origins can be comma-separated.
-- Optional privacy hardening: set `RATE_LIMIT_SALT` so IP addresses are hashed before they become rate-limit keys.
-- Optional timeout tuning: set `OPENAI_TIMEOUT_MS` and `RATE_LIMIT_TIMEOUT_MS` if you need different upstream timeouts. Defaults are `12000` ms and `3000` ms.
-
-If no key is available (neither the site's nor your own), or the key is invalid, out of quota, rate-limited, or OpenAI is unavailable, the coach review shows a friendly unavailable message and applies no changes. Meal tracking, workouts, progress logging, offline PWA behavior, and the deterministic adaptation engine continue to work.
+Set up AI features by saving your own OpenAI key under **Settings → AI coach key**. Workout setup, progress photos, meal analysis, and coach reviews use `gpt-6-luna`.
 
 ## Data & privacy
 
-Core data is stored in your browser's `localStorage` and there are no accounts or analytics. The AI coach is opt-in per review: when you tap **Analyze progress**, the app sends a compact recent snapshot to the same-origin Netlify Function, which calls OpenAI using the server-side `OPENAI_API_KEY`. Use **Progress → Backup** to export/import a JSON snapshot (recommended before clearing browser data).
+Core data is stored in your browser's `localStorage` and there are no accounts or analytics. The AI coach is opt-in per review: when you tap **Analyze progress**, your browser sends a compact snapshot directly to OpenAI using your key. Use **Progress → Backup** to export/import a JSON snapshot (recommended before clearing browser data).
 
 ## Disclaimer
 

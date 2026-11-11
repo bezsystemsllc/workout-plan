@@ -47,6 +47,32 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
   let step = 0; // current wizard step (persists across rerenders)
   let routine = "";
   let routineMatch = null;
+  const planSeed = settings.plan?.meta?.seed ?? Math.floor(Math.random() * 1000000);
+
+  function buildDraftPlan(splits) {
+    return generatePlan({ ...draftPrefs, splits }, draft, {
+      seed: planSeed,
+      preserve: equipmentChanged() || routineMatch ? null : settings.plan,
+      exerciseIds: routineMatch?.exerciseIds,
+    });
+  }
+
+  function workoutPreview() {
+    const plan = buildDraftPlan(draftSplits);
+    return `
+      <h3>${STYLE_OPTIONS[draftPrefs.style].label}</h3>
+      <p class="hint">Equipment · ${draftPrefs.equipment.map(id => EQUIPMENT[id]).filter(Boolean).join(", ") || "Bodyweight only"}</p>
+      <ul class="workout-preview-days">
+        ${WEEKDAYS.map(([day, label]) => {
+          const split = plan.splits[day];
+          if (!split || split.type === "rest") return "";
+          const exercises = plan.workouts[split.day] || [];
+          return `<li><b>${label} · ${esc(split.label)}</b>${exercises.length
+            ? `<br>${exercises.map(ex => esc(ex.name)).join(", ")}`
+            : ""}</li>`;
+        }).join("")}
+      </ul>`;
+  }
 
   function resetSplits() {
     draftSplits = buildSplits(draftPrefs.style, draftPrefs.daysPerWeek, draft.goal);
@@ -65,12 +91,6 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       <section class="card">
         <h2>Training plan</h2>
         <p class="hint">Built from these plus your goal (${GOAL[draft.goal].label}). Swap exercises and tweak sets anytime on the Workout tab.</p>
-
-        <label for="workout-routine">Describe your workout routine</label>
-        <p class="hint" id="workout-routine-hint">List the exercises you want, such as push-ups, pull-ups, deadlifts, or bench press. Add how many days you train if you know. Tempo will pick a template and fill in the rest using your equipment.</p>
-        <textarea id="workout-routine" rows="3" maxlength="800" aria-describedby="workout-routine-hint">${esc(routine)}</textarea>
-        <button id="match-workout" type="button">Suggest template with AI</button>
-        <p class="hint" id="workout-match-status" role="status">${routineMatch ? "Template selected. Review your choices below and save to rebuild your workouts." : "Uses your saved OpenAI key."}</p>
 
         <h3>Lifting days / week</h3>
         <div class="seg">
@@ -138,10 +158,9 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
   function coachKeyCard() {
     const saved = loadApiKey();
     return `
-      <section class="card">
+      <section class="card" id="ai-coach-key">
         <h2>AI coach key</h2>
-        <p class="hint">Tempo uses <b>${DEFAULT_OPENAI_MODEL}</b> with your key for workout setup, photo comparisons, meal analysis, and coach reviews. The site’s shared coach can use a model set by the deployment.</p>
-        <p class="hint">Optional. Add your own OpenAI key and coach reviews run on your account instead of the site's shared quota. Your key is stored only in this browser on this device, is never included in your backup file, and is sent straight to OpenAI — it never passes through this site's server.</p>
+        <p class="hint">Use your own OpenAI key to enable workout setup, photo comparisons, meal analysis, and coach reviews with <b>${DEFAULT_OPENAI_MODEL}</b>. Tempo stores the key in this browser and sends requests directly to OpenAI.</p>
         ${saved ? `<p class="hint" style="margin-top:0">Saved key: <b>sk-…${esc(saved.slice(-4))}</b></p>` : ""}
         <label for="f-api-key">OpenAI API key</label>
         <input id="f-api-key" type="password" autocomplete="off" spellcheck="false" placeholder="${saved ? "Enter a new key to replace" : "sk-…"}" />
@@ -313,11 +332,26 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     step = Math.min(step, steps.length - 1);
 
     root.innerHTML = `
+      <section class="card">
+        <h2>Workout setup with AI</h2>
+        <label for="workout-routine">Describe your workout and equipment</label>
+        <p class="hint" id="workout-routine-hint">Tell Tempo what you want to train, how many days a week, and what equipment you want to use. Try “Three full-body days with push-ups and rows. I only have dumbbells and a bench.”</p>
+        <textarea id="workout-routine" rows="3" maxlength="800" aria-describedby="workout-routine-hint">${esc(routine)}</textarea>
+        <button id="match-workout" type="button" class="primary">Suggest workout template</button>
+        <p class="hint" id="workout-match-status" role="status">${routineMatch ? "Workout preview ready." : "Uses your saved OpenAI key."}</p>
+        <a id="workout-key-link" href="#ai-coach-key" hidden>Go to AI coach key</a>
+        ${routineMatch ? `
+          <div id="workout-preview">${workoutPreview()}</div>
+          <div class="training-buttons">
+            <button id="use-workout-plan" type="button" class="primary">Use this plan</button>
+            <button id="edit-workout-plan" type="button">Edit in Training</button>
+          </div>` : ""}
+      </section>
       <div class="wiz-head"></div>
       <div class="wizard"><div class="wizard-track">${steps.map(s => `<div class="wizard-step">${s.html}</div>`).join("")}</div></div>
       <div class="wiz-nav"></div>
       ${!isOnboarding ? themePickerCard() : ""}
-      ${!isOnboarding ? coachKeyCard() : ""}
+      ${coachKeyCard()}
       ${!isOnboarding ? `
         <section class="card">
           <h2>Progress photos</h2>
@@ -333,10 +367,11 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
             </fieldset>
           </form>
           <p id="progress-photo-status" class="hint" role="status"></p>
+          <a id="photo-key-link" href="#ai-coach-key" hidden>Go to AI coach key</a>
           <div id="progress-photo-result" hidden>
             <h3>Visible changes</h3>
             <p data-photo-comparison></p>
-            <h3>Training guidance</h3>
+            <h3>Next step</h3>
             <p data-photo-advice></p>
             <button type="button" data-photo-routine hidden>Use suggestion in Training</button>
           </div>
@@ -374,11 +409,12 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       for (const d of head.querySelectorAll("button[data-goto]")) d.addEventListener("click", () => setStep(+d.dataset.goto));
     }
 
-    function setStep(n) {
+    function setStep(n, scrollTarget) {
       step = Math.max(0, Math.min(steps.length - 1, n));
       paintChrome();
       applyTrack(true);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      if (scrollTarget) scrollTarget.scrollIntoView({ block: "start" });
+      else window.scrollTo({ top: 0, behavior: "smooth" });
     }
 
     // ── Form wiring (all steps are in the DOM at once) ──
@@ -435,8 +471,14 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     const routineInput = root.querySelector("#workout-routine");
     const matchButton = root.querySelector("#match-workout");
     const matchStatus = root.querySelector("#workout-match-status");
+    const workoutKeyLink = root.querySelector("#workout-key-link");
+    root.querySelector("#use-workout-plan")?.addEventListener("click", () => doSave("workout"));
+    root.querySelector("#edit-workout-plan")?.addEventListener("click", () => {
+      setStep(steps.findIndex(item => item.title === "Training"), head);
+    });
     routineInput.addEventListener("input", () => { routine = routineInput.value; });
     matchButton.addEventListener("click", async () => {
+      workoutKeyLink.hidden = true;
       const description = routine.trim();
       if (!description) {
         matchStatus.textContent = "Describe your routine first.";
@@ -445,10 +487,14 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       }
       const apiKey = loadApiKey();
       if (!apiKey) {
-        matchStatus.textContent = "Save an OpenAI key in Settings to use this feature.";
+        matchStatus.textContent = "Add an OpenAI key to suggest a workout template.";
+        workoutKeyLink.hidden = false;
         return;
       }
+      const idleLabel = matchButton.textContent;
       matchButton.disabled = true;
+      matchButton.setAttribute("aria-busy", "true");
+      matchButton.textContent = "Finding a template…";
       routineInput.readOnly = true;
       matchStatus.textContent = "Finding a workout template…";
       try {
@@ -458,18 +504,30 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         const scheduleChanged = style !== draftPrefs.style || match.daysPerWeek !== draftPrefs.daysPerWeek;
         draftPrefs.style = style;
         draftPrefs.daysPerWeek = match.daysPerWeek;
-        routineMatch = match;
+        if (match.equipment !== null) draftPrefs.equipment = match.equipment;
+        routineMatch = { ...match, style };
         if (scheduleChanged) resetSplits();
+        if (match.equipment !== null && !match.equipment.includes("treadmill")) {
+          draftSplits = Object.fromEntries(Object.entries(draftSplits).map(([day, split]) => [
+            day, split.type === "cardio" && split.cardioId === "intervals"
+              ? { type: "cardio", label: "Brisk walk", detail: "Walk outdoors for 20–30 minutes." }
+              : split,
+          ]));
+        }
         rerender();
       } catch (error) {
         if (matchButton.isConnected) matchStatus.textContent = error.message || "Tempo couldn’t match that routine. Try again.";
       } finally {
         matchButton.disabled = false;
+        matchButton.removeAttribute("aria-busy");
+        matchButton.textContent = idleLabel;
         routineInput.readOnly = false;
       }
     });
     for (const sel of root.querySelectorAll("select[data-day]")) sel.addEventListener("change", (e) => {
       draftSplits = { ...draftSplits, [e.target.dataset.day]: dayFromToken(e.target.value, draft.goal) };
+      const preview = root.querySelector("#workout-preview");
+      if (preview) preview.innerHTML = workoutPreview();
     });
     root.querySelector("#shuffle-ex")?.addEventListener("click", async () => {
       const ok = await confirmAction(
@@ -497,7 +555,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     });
     root.querySelector("#f-api-clear")?.addEventListener("click", async () => {
       const ok = await confirmAction(
-        "Coach reviews will go back to the site's shared quota, which may be limited or unavailable.",
+        "AI features require a saved OpenAI key.",
         { title: "Remove your key?", okLabel: "Remove", danger: true });
       if (!ok) return;
       saveApiKey("");
@@ -509,15 +567,22 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       const form = event.currentTarget;
       const status = root.querySelector("#progress-photo-status");
       const result = root.querySelector("#progress-photo-result");
+      const photoKeyLink = root.querySelector("#photo-key-link");
       result.hidden = true;
+      photoKeyLink.hidden = true;
       const apiKey = loadApiKey();
       if (!apiKey) {
         status.textContent = "Save an OpenAI key in Settings to compare your photos.";
+        photoKeyLink.hidden = false;
         return;
       }
       const files = new FormData(form);
       const fields = form.querySelector("fieldset");
+      const compareButton = form.querySelector('button[type="submit"]');
+      const idleLabel = compareButton.textContent;
       fields.disabled = true;
+      compareButton.setAttribute("aria-busy", "true");
+      compareButton.textContent = "Comparing photos…";
       status.textContent = "Comparing your photos…";
       try {
         const review = await compareProgressPhotos(apiKey, files.get("earlier"), files.get("recent"), {
@@ -545,6 +610,8 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       } catch (error) {
         status.textContent = error.message || "The photo comparison failed. Try again.";
       } finally {
+        compareButton.textContent = idleLabel;
+        compareButton.removeAttribute("aria-busy");
         fields.disabled = false;
       }
     });
@@ -565,12 +632,12 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     applyTrack(false);
   }
 
-  async function doSave() {
+  async function doSave(destination) {
     const err = validate(draft);
     if (err) { step = 0; rerender(); await notify(err, { title: "Check your inputs" }); return; }
     saveDraft(draftSplits);
-    toast(isOnboarding ? "All set — let's go." : "Profile updated.");
-    navigate(isOnboarding && requestedTab === "workout" ? "workout" : "today");
+    toast(destination === "workout" ? "Workout plan saved." : isOnboarding ? "All set — let's go." : "Profile updated.");
+    navigate(destination === "workout" || (isOnboarding && requestedTab === "workout") ? "workout" : "today");
   }
 
   async function doStarterPlan() {
@@ -584,12 +651,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
   function saveDraft(splits) {
     const targets = computeTargets(draft);
     const targetWeightLb = projectTargetWeightLb(draft);
-    // Keep the existing seed unless this is the first plan.
-    const seed = settings.plan?.meta?.seed ?? Math.floor(Math.random() * 1000000);
-    const preserve = equipmentChanged() || routineMatch ? null : settings.plan;
-    const plan = generatePlan({ ...draftPrefs, splits }, draft, {
-      preserve, seed, exerciseIds: routineMatch?.exerciseIds,
-    });
+    const plan = buildDraftPlan(splits);
     update("settings", (s) => ({
       ...s,
       profile: { ...draft },

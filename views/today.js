@@ -1,13 +1,13 @@
 import { getActivePlan, dayLabelFor } from "../lib/plan.js";
 import { iconFor } from "../data/exercise-icons.js";
 import { getMeals } from "../lib/meals.js";
-import { dailyMotivation, greeting } from "../data/motivation.js";
+import { greeting } from "../data/motivation.js";
 import { waterTargetMl, mlToOz, mealTimes, fmtTime12, toMin, pct, barClass } from "../lib/calc.js";
 import { getActiveSuggestions, dismissSuggestion } from "../lib/adaptations.js";
 import { applyCoachChanges, planCoachChanges, latestCoachReview, requestCoachReview, COACH_NOTE_TTL_DAYS } from "../lib/coach.js";
 import { esc } from "../lib/html.js";
-import { confirmForm, notify, toast } from "../lib/modal.js";
-import { load, update, todayISO, weekdayKey } from "../storage.js";
+import { confirmForm, toast } from "../lib/modal.js";
+import { load, loadApiKey, update, todayISO, weekdayKey } from "../storage.js";
 import { navigate } from "../app.js";
 import { aiProgressHtml, setAiProgress } from "../lib/ai-progress.js";
 
@@ -38,28 +38,15 @@ export function renderToday(root) {
 
   root.innerHTML = `
     <section class="card welcome">
-      <div class="welcome-greeting">${greeting()} 👋</div>
-      <p class="welcome-quote">${dailyMotivation()}</p>
-    </section>
-    ${suggestions.map(renderSuggestion).join("")}
-    <section class="card">
-      <div class="spread">
-        <h2 style="margin:0">Coach review</h2>
-        <span class="muted small">AI</span>
-      </div>
-      <p class="hint">Recent trend check for diet, workouts, and weight.</p>
-      <button class="ghost" id="coach-review" style="margin-top:10px;width:100%">Analyze progress</button>
-      ${aiProgressHtml("coach-ai-progress")}
-      ${coachReview ? renderCoachReviewSummary(coachReview) : ""}
-    </section>
-
-    <section class="card">
+      <p class="today-greeting">${greeting()}</p>
       <h2>${esc(split.label)}</h2>
       ${renderTrainingSummary(split, plan.workouts)}
       ${split.type === "lift"
-        ? `<button class="primary" id="go-workout" style="margin-top:10px;width:100%">Start workout →</button>`
+        ? `<button class="primary today-action" id="go-workout">Start workout</button>`
         : ""}
+      <button class="today-action" id="go-workout-setup">Set up my workouts</button>
     </section>
+    ${suggestions.map(renderSuggestion).join("")}
 
     <section class="card">
       <div class="spread">
@@ -76,41 +63,6 @@ export function renderToday(root) {
         <div class="m"><b>${consumed.c}g</b><span>Carbs / ${targets.c}g</span></div>
         <div class="m"><b>${targets.kcal - consumed.kcal}</b><span>kcal left</span></div>
       </div>
-      <div class="water-tracker">
-        <div class="water-stats-row">
-          <span style="font-weight:600">💧 Daily Hydration</span>
-          <span><b class="water-amount-current">${showWater(mealsState.waterMl || 0)}</b> / ${showWater(waterTargetMlVal)} ${waterUnit} (${pct(mealsState.waterMl || 0, waterTargetMlVal)}%)</span>
-        </div>
-        <div class="water-bar-track">
-          <div class="water-bar-fill" style="width:${pct(mealsState.waterMl || 0, waterTargetMlVal)}%"></div>
-        </div>
-        <div class="hint" style="margin:2px 0 6px 0;font-size:12px">
-          ${(mealsState.waterMl || 0) >= waterTargetMlVal ? "✨ Daily target hit! Hydration on point." : `${showWater(Math.max(0, waterTargetMlVal - (mealsState.waterMl || 0)))} ${waterUnit} left today`}
-        </div>
-
-        <div class="water-grid">
-          <button class="water-tile" type="button" data-add-water="${metric ? 250 : 237}" title="Add 1 glass">
-            <span class="water-tile-icon">🥛</span>
-            <span class="water-tile-val">+${metric ? "250" : "8"}</span>
-            <span class="water-tile-sub">Glass</span>
-          </button>
-          <button class="water-tile" type="button" data-add-water="${metric ? 500 : 473}" title="Add 1 bottle">
-            <span class="water-tile-icon">💧</span>
-            <span class="water-tile-val">+${metric ? "500" : "16"}</span>
-            <span class="water-tile-sub">Bottle</span>
-          </button>
-          <button class="water-tile" type="button" data-add-water="${metric ? 750 : 710}" title="Add 1 shaker">
-            <span class="water-tile-icon">🥤</span>
-            <span class="water-tile-val">+${metric ? "750" : "24"}</span>
-            <span class="water-tile-sub">Shaker</span>
-          </button>
-          <button class="water-tile undo-tile" type="button" data-add-water="${metric ? -250 : -237}" title="Undo 1 glass">
-            <span class="water-tile-icon">↩️</span>
-            <span class="water-tile-val">−${metric ? "250" : "8"}</span>
-            <span class="water-tile-sub">Undo</span>
-          </button>
-        </div>
-      </div>
       ${nextMeal ? `
         <div class="next-meal">
           <span class="muted small">Next up</span>
@@ -118,12 +70,59 @@ export function renderToday(root) {
           <div class="hint">${esc(nextMeal.m.items)}</div>
         </div>
       ` : ""}
-      <button class="ghost" id="go-meals" style="margin-top:10px;width:100%">Open meal plan →</button>
+      <button class="today-action" id="go-meals">Open meal plan</button>
+    </section>
+
+    <section class="card today-hydration">
+      <div class="water-stats-row">
+        <h2>Hydration</h2>
+        <span><b class="water-amount-current">${showWater(mealsState.waterMl || 0)}</b> / ${showWater(waterTargetMlVal)} ${waterUnit} (${pct(mealsState.waterMl || 0, waterTargetMlVal)}%)</span>
+      </div>
+      <div class="water-bar-track">
+        <div class="water-bar-fill" style="width:${pct(mealsState.waterMl || 0, waterTargetMlVal)}%"></div>
+      </div>
+      <div class="hint" style="margin:2px 0 6px 0;font-size:12px">
+        ${(mealsState.waterMl || 0) >= waterTargetMlVal ? "✨ Daily target hit! Hydration on point." : `${showWater(Math.max(0, waterTargetMlVal - (mealsState.waterMl || 0)))} ${waterUnit} left today`}
+      </div>
+
+      <div class="water-grid">
+        <button class="water-tile" type="button" data-add-water="${metric ? 250 : 237}" title="Add 1 glass">
+          <span class="water-tile-icon">🥛</span>
+          <span class="water-tile-val">+${metric ? "250" : "8"}</span>
+          <span class="water-tile-sub">Glass</span>
+        </button>
+        <button class="water-tile" type="button" data-add-water="${metric ? 500 : 473}" title="Add 1 bottle">
+          <span class="water-tile-icon">💧</span>
+          <span class="water-tile-val">+${metric ? "500" : "16"}</span>
+          <span class="water-tile-sub">Bottle</span>
+        </button>
+        <button class="water-tile" type="button" data-add-water="${metric ? 750 : 710}" title="Add 1 shaker">
+          <span class="water-tile-icon">🥤</span>
+          <span class="water-tile-val">+${metric ? "750" : "24"}</span>
+          <span class="water-tile-sub">Shaker</span>
+        </button>
+        <button class="water-tile undo-tile" type="button" data-add-water="${metric ? -250 : -237}" title="Undo 1 glass">
+          <span class="water-tile-icon">↩️</span>
+          <span class="water-tile-val">−${metric ? "250" : "8"}</span>
+          <span class="water-tile-sub">Undo</span>
+        </button>
+      </div>
+    </section>
+
+    <section class="card today-coach">
+      <h2>Coach review</h2>
+      <p class="hint">Review recent meals, workouts, and weight trends using your own OpenAI key.</p>
+      ${loadApiKey()
+        ? `<button class="primary today-action" id="coach-review">Analyze progress</button>`
+        : `<button class="primary today-action" id="coach-review" data-needs-key>Set up AI coach key</button>`}
+      ${aiProgressHtml("coach-ai-progress")}
+      ${coachReview ? renderCoachReviewSummary(coachReview) : ""}
     </section>
   `;
 
   root.querySelector("#go-meals")?.addEventListener("click", () => navigate("meals"));
   root.querySelector("#go-workout")?.addEventListener("click", () => navigate("workout"));
+  root.querySelector("#go-workout-setup")?.addEventListener("click", () => navigate("settings"));
 
   for (const b of root.querySelectorAll("button[data-add-water]")) {
     b.addEventListener("click", () => {
@@ -141,13 +140,22 @@ export function renderToday(root) {
   }
   root.querySelector("#coach-review")?.addEventListener("click", async (event) => {
     const btn = event.currentTarget;
+    if (btn.hasAttribute("data-needs-key")) {
+      navigate("settings");
+      root.querySelector("#ai-coach-key")?.scrollIntoView({ block: "start" });
+      return;
+    }
     const previousLabel = btn.textContent;
     btn.disabled = true;
-    btn.textContent = "Analyzing...";
+    btn.setAttribute("aria-busy", "true");
+    btn.textContent = "Analyzing progress…";
     const progress = root.querySelector("#coach-ai-progress");
     setAiProgress(progress, "Checking your recent trends…");
     try {
-      const rec = await requestCoachReview();
+      const rec = await requestCoachReview().finally(() => {
+        btn.removeAttribute("aria-busy");
+        btn.textContent = previousLabel;
+      });
       setAiProgress(progress, "Review ready", "done");
       const planned = planCoachChanges(rec);
       const hasChanges = !!planned.diet || planned.swaps.length > 0;
@@ -166,12 +174,10 @@ export function renderToday(root) {
       toast(describeApplied(applied));
       renderToday(root);
     } catch (err) {
-      setAiProgress(progress, "Couldn't finish", "error");
-      await notify(err.message || "Coach review failed.", { title: "Coach unavailable" });
+      setAiProgress(progress, err.message || "Coach review failed. Try again.", "error");
     } finally {
       if (document.contains(btn)) {
         btn.disabled = false;
-        btn.textContent = previousLabel;
       }
     }
   });
