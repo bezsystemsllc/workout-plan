@@ -12,6 +12,7 @@ import { DIETS, PROTEIN_GROUPS, CARB_GROUPS, ALLERGENS, proteinGroupsForDiet } f
 import { DEFAULT_FOOD_PREFS } from "../lib/meals.js";
 import { notify, confirmAction, toast } from "../lib/modal.js";
 import { esc } from "../lib/html.js";
+import { DEFAULT_OPENAI_MODEL } from "../lib/openai.js";
 import { matchWorkoutRoutine } from "../lib/workout-ai.js";
 import { compareProgressPhotos } from "../lib/progress-photo-ai.js";
 import { navigate } from "../app.js";
@@ -139,6 +140,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     return `
       <section class="card">
         <h2>AI coach key</h2>
+        <p class="hint">Tempo uses <b>${DEFAULT_OPENAI_MODEL}</b> with your key for workout setup, photo comparisons, meal analysis, and coach reviews. The site’s shared coach can use a model set by the deployment.</p>
         <p class="hint">Optional. Add your own OpenAI key and coach reviews run on your account instead of the site's shared quota. Your key is stored only in this browser on this device, is never included in your backup file, and is sent straight to OpenAI — it never passes through this site's server.</p>
         ${saved ? `<p class="hint" style="margin-top:0">Saved key: <b>sk-…${esc(saved.slice(-4))}</b></p>` : ""}
         <label for="f-api-key">OpenAI API key</label>

@@ -112,7 +112,7 @@ Netlify settings:
 - Publish directory: `.`
 - Function directory: handled by `netlify.toml`
 - Environment import template: copy [`netlify.env.example`](netlify.env.example) to `netlify.env`, fill in real values, then import `netlify.env` into Netlify.
-- Environment variables: set `OPENAI_API_KEY` to enable **Coach review** for everyone. Optional: set `OPENAI_MODEL` to choose the model; otherwise the function uses `gpt-4.1-mini`.
+- Environment variables: set `OPENAI_API_KEY` to enable **Coach review** for everyone. Optional: set `OPENAI_MODEL` to choose the model; otherwise the function uses `gpt-6-luna`. Workout setup, progress photos, meal analysis, and personal-key coach reviews use `gpt-6-luna` directly.
 - **Who pays for coach reviews** — three modes, same build:
   - *Owner-funded* — set `OPENAI_API_KEY`. Every visitor shares your quota, capped by the rate limits below.
   - *Bring-your-own-key* — set **no** `OPENAI_API_KEY`. Coach review stays disabled until a user saves their own key under **Settings → AI coach key**, and it then runs on their OpenAI account at their cost.
