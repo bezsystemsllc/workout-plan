@@ -10,12 +10,12 @@
   directory = "netlify/functions"
 
 [[redirects]]
-  # Fallback: serve index.html for any unknown deep link so hash routing keeps working
-  from = "/*"
-  to = "/index.html"
+  from = "/api/coach"
+  to = "/.netlify/functions/coach"
   status = 200
 
 [[redirects]]
-  from = "/api/coach"
-  to = "/.netlify/functions/coach"
+  # Fallback: serve index.html for any unknown deep link so client-side routing keeps working
+  from = "/*"
+  to = "/index.html"
   status = 200
