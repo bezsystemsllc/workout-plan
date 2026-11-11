@@ -24,7 +24,7 @@ export function renderToday(root) {
   const waterTargetMlVal = waterTargetMl(settings.profile, { trainingToday: split.type !== "rest" });
   const showWater = (ml) => metric ? Math.round(ml) : mlToOz(ml);
 
-  const MEALS = getMeals(settings);
+  const MEALS = getMeals(settings, today);
   const consumed = computeConsumed(mealsState, MEALS);
   const suggestions = getActiveSuggestions();
   const coachReview = latestCoachReview();

@@ -112,7 +112,7 @@ Netlify settings:
 - Publish directory: `.`
 Set up AI features by saving your own OpenAI key under **Settings → AI coach key**. Workout setup, progress photos, meal analysis, and coach reviews use `gpt-6-luna`.
 
-To enable **Search USDA** in Meals and USDA ingredient matching in **Settings → Food**, set `USDA_FOODDATA_API_KEY` in Netlify’s Functions scope and redeploy. The function queries [USDA FoodData Central](https://fdc.nal.usda.gov/api-guide/) for food names and nutrient values per 100 g. When a user describes their preferences, Tempo looks up to four compatible ingredients it already knows how to plan in grams. The user can select an exact USDA entry before previewing the plan. Tempo calculates portions and totals using those entries, and uses its built-in estimates for other ingredients.
+To enable automatic USDA ingredient lookup when users select **Suggest weekly meal plan** in **Settings → Food → Build with AI**, set `USDA_FOODDATA_API_KEY` in Netlify’s Functions scope and redeploy. The function queries [USDA FoodData Central](https://fdc.nal.usda.gov/api-guide/) for food names and nutrient values per 100 g. When a user describes their preferences, Tempo looks up to four compatible ingredients it already knows how to plan in grams. The user can select an exact USDA entry before previewing the seven-day plan. Tempo calculates portions and totals using those entries, and uses its built-in estimates for other ingredients.
 
 ## Data & privacy
 

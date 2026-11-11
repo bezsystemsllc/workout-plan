@@ -1,4 +1,3 @@
-import { searchUsdaFoods } from "../lib/usda-foods.js";
 import { getMeals } from "../lib/meals.js";
 import { getActivePlan } from "../lib/plan.js";
 import { load, loadApiKey, update, todayISO } from "../storage.js";
@@ -20,7 +19,7 @@ export function renderMeals(root) {
   const showWater = (ml) => metric ? Math.round(ml) : mlToOz(ml);
 
   // Meals from the food-preference generator (or scaled static template if unset).
-  let MEALS = getMeals(settings);
+  let MEALS;
   const generated = !!settings.foodPrefs;
 
   function getState() {
@@ -31,21 +30,15 @@ export function renderMeals(root) {
   }
 
   function foodLookupHtml() {
-    const hasAiKey = !!loadApiKey();
+    if (!loadApiKey()) return "";
     return `
-      <label style="margin-top:10px" for="food-q">Look up a food in USDA FoodData Central</label>
-      <div class="row" style="gap:8px">
-        <input id="food-q" type="text" style="flex:1;min-width:0" maxlength="200" placeholder="Salmon or rolled oats" />
-        <button type="button" id="usda-food-search">Search USDA</button>
+      <label style="margin-top:10px" for="food-q">Describe what you ate</label>
+      <input id="food-q" type="text" maxlength="200" placeholder="2 eggs and a slice of toast" />
+      <div class="grid-2" style="margin-top:8px">
+        <button type="button" id="food-search">Estimate with AI</button>
+        <button type="button" id="photo-log">Log from a photo</button>
       </div>
-      ${hasAiKey ? `
-        <div class="grid-2" style="margin-top:8px">
-          <button type="button" id="food-search">Estimate with AI</button>
-          <button type="button" id="photo-log">Log from a photo</button>
-        </div>
-        <input type="file" id="photo-input" accept="image/*" capture="environment" hidden />
-        <p class="hint">For an AI estimate, enter a meal and portion, such as “2 eggs and a slice of toast.”</p>
-      ` : ""}
+      <input type="file" id="photo-input" accept="image/*" capture="environment" hidden />
       ${aiProgressHtml("meal-ai-progress")}
     `;
   }
@@ -67,6 +60,7 @@ export function renderMeals(root) {
   }
 
   function render() {
+    MEALS = getMeals(settings, viewedDate);
     const state = getState();
     const savedFoods = load("savedFoods");
     const t = totals(state);
@@ -142,7 +136,7 @@ export function renderMeals(root) {
       <section class="card">
         <div class="spread">
           <h2 style="margin:0">Meal plan</h2>
-          ${generated ? `<button class="ghost small" id="shuffle-meals" style="min-height:32px;padding:4px 10px">🎲 Shuffle</button>` : ""}
+          ${generated ? `<button class="ghost small" id="shuffle-meals" style="min-height:32px;padding:4px 10px">🎲 ${settings.foodPrefs.weekly ? "Shuffle week" : "Shuffle"}</button>` : ""}
         </div>
         <div class="hint">Times based on wake ${fmtTime12(profile?.wakeTime || "06:30")} / bed ${fmtTime12(profile?.sleepTime || "22:30")}. Last bite by <b>${cutoff}</b>. Adjust in Settings.</div>
         ${generated ? `<div class="hint">Built from your food preferences to hit your macros — portions are estimates, tweak to taste.</div>` : ""}
@@ -233,7 +227,6 @@ export function renderMeals(root) {
       const seed = (settings.foodPrefs.seed || 0) + 1;
       settings.foodPrefs = { ...settings.foodPrefs, seed };
       update("settings", (s) => ({ ...s, foodPrefs: { ...s.foodPrefs, seed } }));
-      MEALS = getMeals(settings);
       toast("Fresh meals generated");
       render();
     });
@@ -315,7 +308,7 @@ export function renderMeals(root) {
       if (!btn || aiBusy) return;
       aiBusy = true;
       const progress = root.querySelector("#meal-ai-progress");
-      const buttons = [...root.querySelectorAll("#usda-food-search, #food-search, #photo-log")];
+      const buttons = [...root.querySelectorAll("#food-search, #photo-log")];
       const labels = new Map(buttons.map((button) => [button, button.textContent]));
       for (const button of buttons) button.disabled = true;
       btn.textContent = busyLabel;
@@ -396,14 +389,6 @@ export function renderMeals(root) {
     });
 
     const queryInput = root.querySelector("#food-q");
-    const doUsdaSearch = () => runFoodLookup(
-      root.querySelector("#usda-food-search"), "Searching USDA…",
-      "No USDA results with nutrition data. Try a simpler food name.",
-      "USDA lookup failed",
-      "Choose the matching food. USDA values are per 100 g. Adjust the numbers for the amount you ate.",
-      () => searchUsdaFoods(queryInput.value),
-    );
-    root.querySelector("#usda-food-search")?.addEventListener("click", doUsdaSearch);
     const doSearch = () => runFoodLookup(
       root.querySelector("#food-search"), "Searching…",
       "That didn't look like a food. Try naming the dish and how much.",
@@ -413,7 +398,7 @@ export function renderMeals(root) {
     );
     root.querySelector("#food-search")?.addEventListener("click", doSearch);
     queryInput?.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { e.preventDefault(); doUsdaSearch(); }
+      if (e.key === "Enter") { e.preventDefault(); doSearch(); }
     });
   }
 
@@ -426,10 +411,10 @@ function mealItemsReviewHtml(result, lead) {
   const rows = result.items.map((item, i) => `
     <div class="photo-item" data-item-row data-name="${esc(item.name)}">
       <label class="photo-item-head">
-        <input type="checkbox" ${result.source || item.confidence === "low" ? "" : "checked"} />
+        <input type="checkbox" ${item.confidence === "low" ? "" : "checked"} />
         <span>
           <b>${esc(item.name)}</b>
-          <span class="coach-why">${esc(item.portion)}${item.portion ? " · " : ""}${result.source ? esc(result.source) : `<span class="conf conf-${esc(item.confidence)}">${esc(item.confidence)} confidence</span>`}</span>
+          <span class="coach-why">${esc(item.portion)}${item.portion ? " · " : ""}<span class="conf conf-${esc(item.confidence)}">${esc(item.confidence)} confidence</span></span>
         </span>
       </label>
       <div class="photo-macros">
@@ -442,7 +427,7 @@ function mealItemsReviewHtml(result, lead) {
   `).join("");
 
   return `
-    <p class="hint" style="margin-top:0">${esc(lead)}${result.source ? "" : " Low-confidence items start unticked."}</p>
+    <p class="hint" style="margin-top:0">${esc(lead)} Low-confidence items start unticked.</p>
     ${rows}
     ${result.note ? `<p class="coach-why">${esc(result.note)}</p>` : ""}
     <label class="cf-save-row"><input type="checkbox" id="ai-save-foods" /> Save these to My Foods for next time</label>

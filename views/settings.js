@@ -9,7 +9,7 @@ import {
 } from "../lib/plan.js";
 import { EQUIPMENT, EQUIPMENT_PRESETS } from "../data/exercises.js";
 import { DIETS, FOODS, PROTEIN_GROUPS, CARB_GROUPS, ALLERGENS, fitsDiet, proteinGroupsForDiet } from "../data/foods.js";
-import { DEFAULT_FOOD_PREFS, getMeals } from "../lib/meals.js";
+import { DEFAULT_FOOD_PREFS, getMeals, getMealWeek } from "../lib/meals.js";
 import { notify, confirmAction, confirmForm, toast } from "../lib/modal.js";
 import { esc } from "../lib/html.js";
 import { DEFAULT_OPENAI_MODEL } from "../lib/openai.js";
@@ -51,6 +51,8 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
   let draftFood = { ...DEFAULT_FOOD_PREFS, ...(settings.foodPrefs || {}) };
   let step = 0; // current wizard step (persists across rerenders)
   let furthestStep = 0;
+  let workoutSetup = null;
+  let foodSetup = null;
   let routine = "";
   let routineMatch = null;
   let foodDescription = "";
@@ -100,12 +102,37 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     });
   }
 
+  function setupChoices(section, selected) {
+    return `
+      <div class="seg" role="group" aria-label="${section === "workout" ? "Workout" : "Meal"} setup method">
+        ${[["presets", "Use presets"], ["ai", "Build with AI"]].map(([mode, label]) => `
+          <button type="button" data-setup="${section}" data-mode="${mode}" class="${selected === mode ? "active" : ""}" aria-pressed="${selected === mode}">${label}</button>
+        `).join("")}
+      </div>`;
+  }
+
   // Training-plan configuration card (generator + weekly-layout editor).
   function trainingCard() {
     const activePreset = draftPrefs.equipmentMode === "presets" ? matchingPreset() : undefined;
     return `
       <section class="card">
-        <h2>Training plan</h2>
+        <h2>Workout setup</h2>
+        ${setupChoices("workout", workoutSetup)}
+        ${workoutSetup === "ai" ? `
+        <label for="workout-routine">Describe your workout and equipment</label>
+        <p class="hint" id="workout-routine-hint">Tell Tempo what you want to train, how many days a week, and what equipment you want to use. Try “Three full-body days with push-ups and rows. I only have dumbbells and a bench.”</p>
+        <textarea id="workout-routine" rows="3" maxlength="800" aria-describedby="workout-routine-hint">${esc(routine)}</textarea>
+        <button id="match-workout" type="button" class="primary">Suggest workout template</button>
+        <p class="hint" id="workout-match-status" role="status">${routineMatch ? "Workout preview ready." : "Uses your saved OpenAI key."}</p>
+        <a id="workout-key-link" href="#ai-coach-key" hidden>Go to AI coach key</a>
+        ${routineMatch ? `
+          <div id="workout-preview">${workoutPreview()}</div>
+          <div class="training-buttons">
+            ${!isOnboarding ? `<button id="use-workout-plan" type="button" class="primary">Save workout plan</button>` : ""}
+            <button id="edit-workout-plan" type="button">Edit plan settings</button>
+          </div>` : ""}
+        ` : ""}
+        ${workoutSetup === "presets" ? `
         <p class="hint">Built from these plus your goal (${GOAL[draft.goal].label}). Swap exercises and tweak sets anytime on the Workout tab.</p>
 
         <h3>Lifting days / week</h3>
@@ -141,6 +168,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
             }).join("")}
           </div>`}
         ${settings.plan && equipmentChanged() ? `<p class="hint">Saving rebuilds your workouts and resets exercise swaps. Your weekly layout and workout logs are kept.</p>` : ""}
+        ` : ""}
       </section>
     `;
   }
@@ -225,14 +253,17 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     const preferredFoods = FOODS.filter(food => draftFood.preferredFoods?.includes(food.id));
     return `
       <section class="card">
-        <h2>Food preferences</h2>
-        <p class="hint">Choose your diet, preferred foods, and what to avoid. Tempo builds a daily meal plan around these choices and your nutrition targets.</p>
-
+        <h2>Meal setup</h2>
+        ${setupChoices("food", foodSetup)}
+        ${foodSetup === "ai" ? `
         <label for="food-description">Describe how you like to eat</label>
-        <textarea id="food-description" rows="3" maxlength="800" placeholder="I’m pescatarian, like salmon and rice, and avoid dairy.">${esc(foodDescription)}</textarea>
-        <button id="suggest-food" class="primary" type="button">Suggest meal plan</button>
-        <p id="food-match-status" class="hint" role="status">${foodDraftApplied ? "Preferences applied to your draft. Save from Review." : "Optional. Uses your own OpenAI key."}</p>
+        <textarea id="food-description" rows="3" maxlength="800" placeholder="I like salmon, canned tuna, eggs, and rice. I avoid dairy.">${esc(foodDescription)}</textarea>
+        <button id="suggest-food" class="primary" type="button">Suggest weekly meal plan</button>
+        <p id="food-match-status" class="hint" role="status">${foodDraftApplied ? "Preferences applied to your draft. Save from Review." : "Uses your own OpenAI key."}</p>
         <a id="food-key-link" href="#ai-coach-key" hidden>Go to AI coach key</a>
+        ` : ""}
+        ${foodSetup === "presets" ? `
+        <p class="hint">Choose your diet, favorite food groups, and foods to avoid.</p>
         ${preferredFoods.length ? `
           <p class="hint">Preferred ingredients · ${preferredFoods.map(food => esc(food.name)).join(", ")}</p>
           <button id="clear-preferred-foods" type="button">Clear preferred ingredients</button>` : ""}
@@ -256,20 +287,32 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         <div class="chips">
           ${Object.entries(ALLERGENS).map(([k, label]) => `<button class="chip ${draftFood.avoid.includes(k) ? "on" : ""}" data-avoid="${k}">${label}</button>`).join("")}
         </div>
+        ` : ""}
       </section>
     `;
   }
 
+  function mealDaysPreview(week) {
+    return week.map((meals, i) => `
+      <details ${i === 0 ? "open" : ""}>
+        <summary>${["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][i]}</summary>
+        <ul class="workout-preview-days">
+          ${meals.map(meal => `<li><b>${esc(meal.name)}</b><br>${esc(meal.items || "No matching foods for this meal.")}<br>
+            <span class="hint">~${meal.kcal} kcal · ${meal.p} g protein · ${meal.c} g carbs · ${meal.f} g fat</span></li>`).join("")}
+        </ul>
+      </details>`).join("");
+  }
+
   function setupPlanPreview(targets) {
-    const mealPlan = getMeals({ targets, foodPrefs: draftFood });
+    const mealSettings = { targets, foodPrefs: draftFood };
     const liftDays = WEEKDAYS.filter(([day]) => draftSplits[day]?.type === "lift").map(([, label]) => label);
     return `
       <h3>Weekly workout plan</h3>
       <p>${STYLE_OPTIONS[draftPrefs.style].label} · ${liftDays.join(", ") || "No lifting days scheduled"}</p>
-      <h3>Daily meal plan</h3>
-      <ul class="workout-preview-days">
-        ${mealPlan.map(meal => `<li><b>${esc(meal.name)}</b><br>${esc(meal.items || "No matching foods for this meal.")}</li>`).join("")}
-      </ul>`;
+      <h3>${draftFood.weekly ? "Weekly meal plan" : "Daily meal plan"}</h3>
+      ${draftFood.weekly ? mealDaysPreview(getMealWeek(mealSettings)) : `<ul class="workout-preview-days">
+        ${getMeals(mealSettings).map(meal => `<li><b>${esc(meal.name)}</b><br>${esc(meal.items || "No matching foods for this meal.")}</li>`).join("")}
+      </ul>`}`;
   }
 
   // Each step is one card; they're all rendered into a horizontal track and
@@ -371,21 +414,6 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     step = Math.min(step, steps.length - 1);
 
     root.innerHTML = `
-      ${!isOnboarding ? `<section class="card">
-        <h2>Workout setup with AI</h2>
-        <label for="workout-routine">Describe your workout and equipment</label>
-        <p class="hint" id="workout-routine-hint">Tell Tempo what you want to train, how many days a week, and what equipment you want to use. Try “Three full-body days with push-ups and rows. I only have dumbbells and a bench.”</p>
-        <textarea id="workout-routine" rows="3" maxlength="800" aria-describedby="workout-routine-hint">${esc(routine)}</textarea>
-        <button id="match-workout" type="button" class="primary">Suggest workout template</button>
-        <p class="hint" id="workout-match-status" role="status">${routineMatch ? "Workout preview ready." : "Uses your saved OpenAI key."}</p>
-        <a id="workout-key-link" href="#ai-coach-key" hidden>Go to AI coach key</a>
-        ${routineMatch ? `
-          <div id="workout-preview">${workoutPreview()}</div>
-          <div class="training-buttons">
-            <button id="use-workout-plan" type="button" class="primary">Use this plan</button>
-            <button id="edit-workout-plan" type="button">Edit in Training</button>
-          </div>` : ""}
-      </section>` : ""}
       <div class="wiz-head"></div>
       <div class="wizard"><div class="wizard-track">${steps.map(s => `<div class="wizard-step">${s.html}</div>`).join("")}</div></div>
       <div class="wiz-nav"></div>
@@ -431,6 +459,8 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       if (el) wizard.style.height = el.offsetHeight + "px";
     }
 
+    root.querySelector("#setup-plan-preview")?.addEventListener("toggle", () => applyTrack(false), true);
+
     function paintChrome() {
       head.innerHTML = `
         <span class="wiz-step-label">Step ${step + 1} of ${steps.length} · ${steps[step].title}</span>
@@ -462,6 +492,16 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     }
 
     // ── Form wiring (all steps are in the DOM at once) ──
+    for (const button of root.querySelectorAll("button[data-setup]")) {
+      button.addEventListener("click", () => {
+        const { setup, mode } = button.dataset;
+        if (setup === "workout") workoutSetup = mode;
+        else foodSetup = mode;
+        rerender();
+        root.querySelector(`[data-setup="${setup}"][data-mode="${mode}"]`)?.focus({ preventScroll: true });
+      });
+    }
+
     root.querySelector("#f-weight")?.addEventListener("input", (e) => {
       const v = parseFloat(e.target.value);
       if (isNaN(v)) return;
@@ -512,14 +552,15 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       draftFood.usdaFoods = [];
       rerender();
     });
-    foodKeyLink?.addEventListener("click", event => {
+    function goToAiKey(event) {
       event.preventDefault();
       if (isOnboarding && !showSetupKey) {
         showSetupKey = true;
         rerender();
       }
       root.querySelector("#ai-coach-key")?.scrollIntoView({ block: "start" });
-    });
+    }
+    foodKeyLink?.addEventListener("click", goToAiKey);
     foodInput?.addEventListener("input", () => { foodDescription = foodInput.value; });
     foodButton?.addEventListener("click", async () => {
       foodKeyLink.hidden = true;
@@ -588,21 +629,21 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
           else if (results.some(result => result.status === "rejected")) usdaNote = "Some USDA lookups were unavailable. Tempo estimates are used where no USDA entry was selected.";
           else if (!rows.length) usdaNote = "No usable USDA entries were found. This plan uses Tempo estimates.";
         }
-        const meals = getMeals({ targets: computeTargets(draft), foodPrefs });
-        if (meals.some(meal => !meal.items)) {
+        foodPrefs.weekly = true;
+        const week = getMealWeek({ targets: computeTargets(draft), foodPrefs });
+        if (week.some(meals => meals.some(meal => !meal.items))) {
           throw new Error("Tempo couldn’t fill every meal with foods that match these restrictions.");
         }
         const excluded = foodPrefs.avoid.map(id => ALLERGENS[id]).filter(Boolean).join(", ");
         const accepted = await confirmForm(`
           <p><b>${esc(DIETS[foodPrefs.diet])}</b> · Avoid: ${esc(excluded || "None selected")}</p>
           ${unmatchedFoods.length ? `<p class="hint">Unavailable in the meal planner: ${esc(unmatchedFoods.join(", "))}.</p>` : ""}
-          <ul class="workout-preview-days">
-            ${meals.map(meal => `<li><b>${esc(meal.name)}</b><br>${esc(meal.items)}<br><span class="hint">~${meal.kcal} kcal · ${meal.p} g protein · ${meal.c} g carbs · ${meal.f} g fat</span></li>`).join("")}
-          </ul>
+          <p class="hint">This plan repeats each week. Tempo calculates portions from your nutrition targets and uses USDA nutrition values where you confirmed a match.</p>
+          ${mealDaysPreview(week)}
           ${foodPrefs.usdaFoods.length ? `<p class="hint">USDA FoodData Central entries: ${foodPrefs.usdaFoods.map(item => esc(item.name)).join("; ")}.</p>` : ""}
           ${usdaNote ? `<p class="hint">${esc(usdaNote)}</p>` : ""}
           <p class="hint">Review the ingredients and exclusions before using this plan.</p>`,
-        { title: "Suggested daily meal plan", okLabel: "Use these preferences" });
+        { title: "Suggested weekly meal plan", okLabel: "Use this plan" });
         if (!foodButton.isConnected) return;
         if (accepted) {
           draftFood = foodPrefs;
@@ -654,9 +695,12 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     const matchButton = root.querySelector("#match-workout");
     const matchStatus = root.querySelector("#workout-match-status");
     const workoutKeyLink = root.querySelector("#workout-key-link");
+    workoutKeyLink?.addEventListener("click", goToAiKey);
     root.querySelector("#use-workout-plan")?.addEventListener("click", () => doSave("workout"));
     root.querySelector("#edit-workout-plan")?.addEventListener("click", () => {
-      setStep(steps.findIndex(item => item.title === "Training"), head);
+      workoutSetup = "presets";
+      rerender();
+      root.querySelector('[data-setup="workout"][data-mode="presets"]')?.focus();
     });
     routineInput?.addEventListener("input", () => { routine = routineInput.value; });
     matchButton?.addEventListener("click", async () => {
@@ -671,6 +715,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       if (!apiKey) {
         matchStatus.textContent = "Add an OpenAI key to suggest a workout template.";
         workoutKeyLink.hidden = false;
+        applyTrack(false);
         return;
       }
       const idleLabel = matchButton.textContent;
@@ -679,6 +724,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       matchButton.textContent = "Finding a template…";
       routineInput.readOnly = true;
       matchStatus.textContent = "Finding a workout template…";
+      applyTrack(false);
       try {
         const match = await matchWorkoutRoutine(apiKey, description, draftPrefs);
         if (!matchButton.isConnected) return;
@@ -708,6 +754,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         matchButton.removeAttribute("aria-busy");
         matchButton.textContent = idleLabel;
         routineInput.readOnly = false;
+        if (matchButton.isConnected) applyTrack(false);
       }
     });
     for (const sel of root.querySelectorAll("select[data-day]")) sel.addEventListener("change", (e) => {
@@ -784,6 +831,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         const useRoutine = result.querySelector("[data-photo-routine]");
         useRoutine.hidden = !review.routine;
         useRoutine.onclick = () => {
+          workoutSetup = "ai";
           routine = review.routine;
           routineMatch = null;
           step = steps.findIndex(item => item.title === "Training");

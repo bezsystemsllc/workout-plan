@@ -279,6 +279,7 @@ function normalizeSettings(value, strict) {
         const { fdcId, name, kcal, p, f, c } = item;
         return [{ foodId: food.id, fdcId, name: name.slice(0, 80), kcal, p, f, c }];
       }),
+      ...(value.foodPrefs.weekly === true ? { weekly: true } : {}),
       seed: Math.round(clampNumber(value.foodPrefs.seed, 0, 1000000, 0)),
     };
   }
