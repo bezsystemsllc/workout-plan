@@ -5,16 +5,19 @@ import {
 } from "../lib/calc.js";
 import {
   generatePlan, buildSplits, DEFAULT_PREFS, STYLE_OPTIONS, EXPERIENCE,
-  DAY_LABEL, dayLabelFor, dayFromToken, tokenFromDay, VARIANT_SUFFIX,
+  dayLabelFor, dayFromToken, tokenFromDay, VARIANT_SUFFIX,
 } from "../lib/plan.js";
 import { EQUIPMENT, EQUIPMENT_PRESETS } from "../data/exercises.js";
-import { DIETS, PROTEIN_GROUPS, CARB_GROUPS, ALLERGENS, proteinGroupsForDiet } from "../data/foods.js";
-import { DEFAULT_FOOD_PREFS } from "../lib/meals.js";
-import { notify, confirmAction, toast } from "../lib/modal.js";
+import { DIETS, FOODS, PROTEIN_GROUPS, CARB_GROUPS, ALLERGENS, fitsDiet, proteinGroupsForDiet } from "../data/foods.js";
+import { DEFAULT_FOOD_PREFS, getMeals } from "../lib/meals.js";
+import { notify, confirmAction, confirmForm, toast } from "../lib/modal.js";
 import { esc } from "../lib/html.js";
 import { DEFAULT_OPENAI_MODEL } from "../lib/openai.js";
 import { matchWorkoutRoutine } from "../lib/workout-ai.js";
+import { isUsdaMatch, searchUsdaFoods } from "../lib/usda-foods.js";
+import { suggestFoodPreferences } from "../lib/food-preferences-ai.js";
 import { compareProgressPhotos } from "../lib/progress-photo-ai.js";
+import { THEMES, currentTheme, applyTheme } from "../lib/theme.js";
 import { navigate } from "../app.js";
 
 const WEEKDAYS = [["mon","Mon"],["tue","Tue"],["wed","Wed"],["thu","Thu"],["fri","Fri"],["sat","Sat"],["sun","Sun"]];
@@ -40,13 +43,19 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
   let draftUnits = units;
   const savedPrefs = { ...DEFAULT_PREFS, ...(settings.trainingPrefs || {}) };
   let draftPrefs = { ...savedPrefs };
+  draftPrefs.equipmentMode ??= matchingPreset() ? "presets" : "custom";
+  let equipmentPanel = draftPrefs.equipmentMode;
   let draftSplits = settings.plan?.splits
     ? { ...settings.plan.splits }
     : buildSplits(draftPrefs.style, draftPrefs.daysPerWeek, draft.goal);
   let draftFood = { ...DEFAULT_FOOD_PREFS, ...(settings.foodPrefs || {}) };
   let step = 0; // current wizard step (persists across rerenders)
+  let furthestStep = 0;
   let routine = "";
   let routineMatch = null;
+  let foodDescription = "";
+  let foodDraftApplied = false;
+  let showSetupKey = false;
   const planSeed = settings.plan?.meta?.seed ?? Math.floor(Math.random() * 1000000);
 
   function buildDraftPlan(splits) {
@@ -83,10 +92,17 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       draftPrefs.equipment.some(item => !savedPrefs.equipment.includes(item));
   }
 
+  function matchingPreset() {
+    const selected = new Set(draftPrefs.equipment);
+    return Object.keys(EQUIPMENT_PRESETS).find(key => {
+      const equipment = EQUIPMENT_PRESETS[key].equipment;
+      return equipment.length === selected.size && equipment.every(id => selected.has(id));
+    });
+  }
+
   // Training-plan configuration card (generator + weekly-layout editor).
   function trainingCard() {
-    const eqSet = [...draftPrefs.equipment].sort().join(",");
-    const activePreset = Object.entries(EQUIPMENT_PRESETS).find(([, v]) => [...v.equipment].sort().join(",") === eqSet)?.[0];
+    const activePreset = draftPrefs.equipmentMode === "presets" ? matchingPreset() : undefined;
     return `
       <section class="card">
         <h2>Training plan</h2>
@@ -108,14 +124,22 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         </div>
 
         <h3>Equipment</h3>
-        <p class="hint" style="margin-top:0">Where do you train? Pick a preset, then fine-tune below.</p>
-        <div class="training-buttons">
-          ${Object.entries(EQUIPMENT_PRESETS).map(([k, v]) => `<button class="${activePreset === k ? "primary" : ""}" data-preset="${k}">${v.label}</button>`).join("")}
+        <div class="seg" role="group" aria-label="Equipment options">
+          <button type="button" data-equipment-panel="presets" class="${equipmentPanel === "presets" ? "active" : ""}" aria-pressed="${equipmentPanel === "presets"}">Presets</button>
+          <button type="button" data-equipment-panel="custom" class="${equipmentPanel === "custom" ? "active" : ""}" aria-pressed="${equipmentPanel === "custom"}">Custom</button>
         </div>
-        <div class="chips training-buttons" style="margin-top:10px">
-          ${Object.entries(EQUIPMENT).filter(([k]) => k !== "bodyweight").map(([k, label]) =>
-            `<button class="chip ${draftPrefs.equipment.includes(k) ? "on" : ""}" data-equip="${k}">${label}</button>`).join("")}
-        </div>
+        ${equipmentPanel === "presets" ? `
+          <p class="hint">${activePreset ? "Pick an equipment preset." : "Your custom equipment is active. Choose a preset to switch."}</p>
+          <div class="training-buttons">
+            ${Object.entries(EQUIPMENT_PRESETS).map(([k, v]) => `<button type="button" class="${activePreset === k ? "primary" : ""}" data-preset="${k}" aria-pressed="${activePreset === k}">${v.label}</button>`).join("")}
+          </div>` : `
+          <p class="hint">Select the equipment you want to use. Clear all selections for bodyweight only.</p>
+          <div class="chips training-buttons">
+            ${Object.entries(EQUIPMENT).filter(([k]) => k !== "bodyweight").map(([k, label]) => {
+              const selected = draftPrefs.equipment.includes(k);
+              return `<button type="button" class="chip ${selected ? "on" : ""}" data-equip="${k}" aria-pressed="${selected}">${label}</button>`;
+            }).join("")}
+          </div>`}
         ${settings.plan && equipmentChanged() ? `<p class="hint">Saving rebuilds your workouts and resets exercise swaps. Your weekly layout and workout logs are kept.</p>` : ""}
       </section>
     `;
@@ -174,27 +198,20 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
   }
 
   function themePickerCard() {
-    const currentTheme = localStorage.getItem("tempo_theme") || "emerald";
-    const themes = [
-      { id: "emerald", name: "Emerald Cyber", desc: "Dark neon green", accent: "#10b981" },
-      { id: "oled", name: "OLED Midnight", desc: "Pure black & cyan", accent: "#38bdf8" },
-      { id: "amber", name: "Sunset Amber", desc: "Charcoal & warm gold", accent: "#f59e0b" },
-      { id: "light", name: "Frost Light", desc: "Crisp daylight", accent: "#059669" },
-    ];
-
+    const active = currentTheme();
     return `
       <section class="card" style="margin-top:14px">
-        <h2>Appearance & Theme</h2>
-        <p class="hint">Personalize your color palette and display aesthetics.</p>
+        <h2>Appearance</h2>
+        <p class="hint">Pick a color palette. Applies instantly on this device.</p>
         <div class="theme-picker-grid">
-          ${themes.map(t => `
-            <div class="theme-card ${currentTheme === t.id ? "active" : ""}" data-set-theme="${t.id}">
-              <div class="theme-swatch" style="background: ${t.accent}; border-color: ${t.accent}"></div>
-              <div>
-                <b style="font-size:13px;display:block">${t.name}</b>
+          ${THEMES.map(t => `
+            <button type="button" class="theme-card ${active === t.id ? "active" : ""}" data-set-theme="${t.id}" aria-pressed="${active === t.id}">
+              <span class="theme-swatch" style="background:${t.swatch}"></span>
+              <span class="theme-card-text">
+                <b>${t.name}</b>
                 <span class="muted small">${t.desc}</span>
-              </div>
-            </div>
+              </span>
+            </button>
           `).join("")}
         </div>
       </section>
@@ -205,10 +222,20 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
   // Food-preferences step — drives the meal generator.
   function foodCard() {
     const proteins = proteinGroupsForDiet(draftFood.diet);
+    const preferredFoods = FOODS.filter(food => draftFood.preferredFoods?.includes(food.id));
     return `
       <section class="card">
         <h2>Food preferences</h2>
-        <p class="hint">Your meals are built from foods you actually eat, scaled to your macros.</p>
+        <p class="hint">Choose your diet, preferred foods, and what to avoid. Tempo builds a daily meal plan around these choices and your nutrition targets.</p>
+
+        <label for="food-description">Describe how you like to eat</label>
+        <textarea id="food-description" rows="3" maxlength="800" placeholder="I’m pescatarian, like salmon and rice, and avoid dairy.">${esc(foodDescription)}</textarea>
+        <button id="suggest-food" class="primary" type="button">Suggest meal plan</button>
+        <p id="food-match-status" class="hint" role="status">${foodDraftApplied ? "Preferences applied to your draft. Save from Review." : "Optional. Uses your own OpenAI key."}</p>
+        <a id="food-key-link" href="#ai-coach-key" hidden>Go to AI coach key</a>
+        ${preferredFoods.length ? `
+          <p class="hint">Preferred ingredients · ${preferredFoods.map(food => esc(food.name)).join(", ")}</p>
+          <button id="clear-preferred-foods" type="button">Clear preferred ingredients</button>` : ""}
 
         <h3>Diet</h3>
         <div class="grid-2">
@@ -233,6 +260,18 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     `;
   }
 
+  function setupPlanPreview(targets) {
+    const mealPlan = getMeals({ targets, foodPrefs: draftFood });
+    const liftDays = WEEKDAYS.filter(([day]) => draftSplits[day]?.type === "lift").map(([, label]) => label);
+    return `
+      <h3>Weekly workout plan</h3>
+      <p>${STYLE_OPTIONS[draftPrefs.style].label} · ${liftDays.join(", ") || "No lifting days scheduled"}</p>
+      <h3>Daily meal plan</h3>
+      <ul class="workout-preview-days">
+        ${mealPlan.map(meal => `<li><b>${esc(meal.name)}</b><br>${esc(meal.items || "No matching foods for this meal.")}</li>`).join("")}
+      </ul>`;
+  }
+
   // Each step is one card; they're all rendered into a horizontal track and
   // shown one at a time, so existing input wiring keeps working unchanged.
   function buildSteps() {
@@ -244,8 +283,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       { title: "You", html: `
         <section class="card">
           <h2>${isOnboarding ? "Welcome 👋" : "Your profile"}</h2>
-          <p class="hint">${isOnboarding ? "A few quick steps and we'll build your calorie, macro, and training targets." : "Edit anything, then Save — your targets recalculate."}</p>
-          ${isOnboarding ? `<button class="primary setup-fast-start" id="starter-plan">Start starter workout</button>` : ""}
+          <p class="hint">${isOnboarding ? "Set your goal, food preferences, and workout routine. You’ll review both plans before you start." : "Edit anything, then Save — your targets recalculate."}</p>
           <h3>Units</h3>
           <div class="grid-2">
             <button class="${draftUnits === "imperial" ? "primary" : ""}" data-units="imperial">Imperial (lb, ft/in)</button>
@@ -322,7 +360,8 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
             <div class="m"><b>${targets.c}g</b><span>Carbs</span></div>
           </div>
           <div class="hint" style="margin-top:8px">${targetsHint(draft)}</div>
-          <p class="hint" style="margin-top:10px">${isOnboarding ? "All set — tap Start tracking." : "Tap Save changes to apply."}</p>
+          ${isOnboarding ? `<div id="setup-plan-preview">${setupPlanPreview(targets)}</div>` : ""}
+          <p class="hint" style="margin-top:10px">${isOnboarding ? "Tap Start tracking to save both plans." : "Tap Save changes to apply."}</p>
         </section>` },
     ];
   }
@@ -332,7 +371,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     step = Math.min(step, steps.length - 1);
 
     root.innerHTML = `
-      <section class="card">
+      ${!isOnboarding ? `<section class="card">
         <h2>Workout setup with AI</h2>
         <label for="workout-routine">Describe your workout and equipment</label>
         <p class="hint" id="workout-routine-hint">Tell Tempo what you want to train, how many days a week, and what equipment you want to use. Try “Three full-body days with push-ups and rows. I only have dumbbells and a bench.”</p>
@@ -346,12 +385,12 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
             <button id="use-workout-plan" type="button" class="primary">Use this plan</button>
             <button id="edit-workout-plan" type="button">Edit in Training</button>
           </div>` : ""}
-      </section>
+      </section>` : ""}
       <div class="wiz-head"></div>
       <div class="wizard"><div class="wizard-track">${steps.map(s => `<div class="wizard-step">${s.html}</div>`).join("")}</div></div>
       <div class="wiz-nav"></div>
       ${!isOnboarding ? themePickerCard() : ""}
-      ${coachKeyCard()}
+      ${!isOnboarding || showSetupKey ? coachKeyCard() : ""}
       ${!isOnboarding ? `
         <section class="card">
           <h2>Progress photos</h2>
@@ -396,7 +435,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       head.innerHTML = `
         <span class="wiz-step-label">Step ${step + 1} of ${steps.length} · ${steps[step].title}</span>
         <div class="wiz-dots">
-          ${steps.map((s, i) => `<button class="wiz-dot ${i === step ? "active" : ""}" data-goto="${i}" aria-label="Go to ${s.title}"></button>`).join("")}
+          ${steps.map((s, i) => `<button class="wiz-dot ${i === step ? "active" : ""}" data-goto="${i}" aria-label="Go to ${s.title}" ${isOnboarding && i > furthestStep ? "disabled" : ""}></button>`).join("")}
         </div>`;
       nav.innerHTML = `
         <button class="ghost" id="wiz-back" ${step === 0 ? "disabled" : ""}>← Back</button>
@@ -411,6 +450,11 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
 
     function setStep(n, scrollTarget) {
       step = Math.max(0, Math.min(steps.length - 1, n));
+      furthestStep = Math.max(furthestStep, step);
+      const setupPreview = root.querySelector("#setup-plan-preview");
+      if (setupPreview && step === steps.length - 1) {
+        setupPreview.innerHTML = setupPlanPreview(computeTargets(draft));
+      }
       paintChrome();
       applyTrack(true);
       if (scrollTarget) scrollTarget.scrollIntoView({ block: "start" });
@@ -459,14 +503,152 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     for (const btn of root.querySelectorAll("button[data-carb]")) btn.addEventListener("click", () => { toggleFood("carbs", btn.dataset.carb); rerender(); });
     for (const btn of root.querySelectorAll("button[data-avoid]")) btn.addEventListener("click", () => { toggleFood("avoid", btn.dataset.avoid); rerender(); });
 
+    const foodInput = root.querySelector("#food-description");
+    const foodButton = root.querySelector("#suggest-food");
+    const foodStatus = root.querySelector("#food-match-status");
+    const foodKeyLink = root.querySelector("#food-key-link");
+    root.querySelector("#clear-preferred-foods")?.addEventListener("click", () => {
+      draftFood.preferredFoods = [];
+      draftFood.usdaFoods = [];
+      rerender();
+    });
+    foodKeyLink?.addEventListener("click", event => {
+      event.preventDefault();
+      if (isOnboarding && !showSetupKey) {
+        showSetupKey = true;
+        rerender();
+      }
+      root.querySelector("#ai-coach-key")?.scrollIntoView({ block: "start" });
+    });
+    foodInput?.addEventListener("input", () => { foodDescription = foodInput.value; });
+    foodButton?.addEventListener("click", async () => {
+      foodKeyLink.hidden = true;
+      const description = foodDescription.trim();
+      if (!description) {
+        foodStatus.textContent = "Describe your food preferences first.";
+        foodInput.focus();
+        return;
+      }
+      const key = loadApiKey();
+      if (!key) {
+        foodStatus.textContent = "Add your OpenAI key to suggest a meal plan.";
+        foodKeyLink.hidden = false;
+        applyTrack(false);
+        return;
+      }
+      const idleLabel = foodButton.textContent;
+      foodButton.disabled = true;
+      foodButton.setAttribute("aria-busy", "true");
+      foodButton.textContent = "Building a meal preview…";
+      foodStatus.textContent = "Matching your food preferences…";
+      foodInput.readOnly = true;
+      try {
+        const { foodPrefs, unmatchedFoods } = await suggestFoodPreferences(key, description, draftFood);
+        if (!foodButton.isConnected) return;
+        const candidates = FOODS.filter(food => foodPrefs.preferredFoods.includes(food.id) &&
+          food.unit === "g" && fitsDiet(food, foodPrefs.diet) &&
+          !food.allergens.some(allergen => foodPrefs.avoid.includes(allergen))).slice(0, 4);
+        foodPrefs.usdaFoods = (draftFood.usdaFoods || []).filter(item => foodPrefs.preferredFoods.includes(item.foodId));
+        let usdaNote = "";
+        if (candidates.length) {
+          foodStatus.textContent = "Looking up ingredients in USDA FoodData Central…";
+          const results = await Promise.allSettled(candidates.map(food => searchUsdaFoods(food.name)));
+          if (!foodButton.isConnected) return;
+          const rows = candidates.map((food, i) => {
+            const items = results[i].value?.items.filter(item => isUsdaMatch(item, food)) || [];
+            const saved = foodPrefs.usdaFoods.find(item => item.foodId === food.id);
+            if (saved && !items.some(item => item.fdcId === saved.fdcId)) items.unshift(saved);
+            return { food, items, saved };
+          }).filter(row => row.items.length);
+          if (rows.length) {
+            const selections = await confirmForm(`
+              <p class="hint">Choose a USDA entry only if it matches the ingredient and how you prepare it. Tempo can use its estimates for the rest.</p>
+              ${rows.map(({ food, items, saved }, i) => `
+                <p><label>${esc(food.name)}<br>
+                  <select data-usda-row="${i}">
+                    <option value="">Use Tempo estimates</option>
+                    ${items.map(item => `<option value="${item.fdcId}" ${saved?.fdcId === item.fdcId ? "selected" : ""}>${esc(item.name)}</option>`).join("")}
+                  </select>
+                </label></p>`).join("")}`,
+            { title: "Match ingredients to USDA", okLabel: "Preview meal plan", collect: wrap =>
+              [...wrap.querySelectorAll("[data-usda-row]")].flatMap((select, i) => {
+                const { food, items } = rows[i];
+                const item = items.find(entry => entry.fdcId === Number(select.value));
+                return item ? [{ ...item, foodId: food.id }] : [];
+              }) });
+            if (!foodButton.isConnected) return;
+            if (!selections) {
+              foodStatus.textContent = "You can edit your description and try again.";
+              return;
+            }
+            foodPrefs.usdaFoods = foodPrefs.usdaFoods.filter(item => !rows.some(row => row.food.id === item.foodId)).concat(selections);
+          }
+          const limitError = results.find(result => result.status === "rejected" && result.reason?.status === 429);
+          if (limitError) usdaNote = `${limitError.reason.message} You can still use this plan with Tempo’s estimates for ingredients without a USDA match.`;
+          else if (results.some(result => result.status === "rejected")) usdaNote = "Some USDA lookups were unavailable. Tempo estimates are used where no USDA entry was selected.";
+          else if (!rows.length) usdaNote = "No usable USDA entries were found. This plan uses Tempo estimates.";
+        }
+        const meals = getMeals({ targets: computeTargets(draft), foodPrefs });
+        if (meals.some(meal => !meal.items)) {
+          throw new Error("Tempo couldn’t fill every meal with foods that match these restrictions.");
+        }
+        const excluded = foodPrefs.avoid.map(id => ALLERGENS[id]).filter(Boolean).join(", ");
+        const accepted = await confirmForm(`
+          <p><b>${esc(DIETS[foodPrefs.diet])}</b> · Avoid: ${esc(excluded || "None selected")}</p>
+          ${unmatchedFoods.length ? `<p class="hint">Unavailable in the meal planner: ${esc(unmatchedFoods.join(", "))}.</p>` : ""}
+          <ul class="workout-preview-days">
+            ${meals.map(meal => `<li><b>${esc(meal.name)}</b><br>${esc(meal.items)}<br><span class="hint">~${meal.kcal} kcal · ${meal.p} g protein · ${meal.c} g carbs · ${meal.f} g fat</span></li>`).join("")}
+          </ul>
+          ${foodPrefs.usdaFoods.length ? `<p class="hint">USDA FoodData Central entries: ${foodPrefs.usdaFoods.map(item => esc(item.name)).join("; ")}.</p>` : ""}
+          ${usdaNote ? `<p class="hint">${esc(usdaNote)}</p>` : ""}
+          <p class="hint">Review the ingredients and exclusions before using this plan.</p>`,
+        { title: "Suggested daily meal plan", okLabel: "Use these preferences" });
+        if (!foodButton.isConnected) return;
+        if (accepted) {
+          draftFood = foodPrefs;
+          foodDraftApplied = true;
+          rerender();
+        } else {
+          foodStatus.textContent = "You can edit your description and try again.";
+        }
+      } catch (error) {
+        if (foodButton.isConnected) foodStatus.textContent = error.message || "Couldn’t suggest a meal plan. Try again.";
+      } finally {
+        foodButton.disabled = false;
+        foodButton.removeAttribute("aria-busy");
+        foodButton.textContent = idleLabel;
+        foodInput.readOnly = false;
+        if (foodButton.isConnected) applyTrack(false);
+      }
+    });
+
     for (const btn of root.querySelectorAll("button[data-days]")) btn.addEventListener("click", () => { draftPrefs.daysPerWeek = +btn.dataset.days; resetSplits(); rerender(); });
     for (const btn of root.querySelectorAll("button[data-style]")) btn.addEventListener("click", () => { draftPrefs.style = btn.dataset.style; resetSplits(); rerender(); });
     for (const btn of root.querySelectorAll("button[data-exp]")) btn.addEventListener("click", () => { draftPrefs.experience = btn.dataset.exp; rerender(); });
-    for (const btn of root.querySelectorAll("button[data-preset]")) btn.addEventListener("click", () => { draftPrefs.equipment = [...EQUIPMENT_PRESETS[btn.dataset.preset].equipment]; rerender(); });
+    for (const btn of root.querySelectorAll("button[data-equipment-panel]")) btn.addEventListener("click", () => {
+      equipmentPanel = btn.dataset.equipmentPanel;
+      if (equipmentPanel === "custom") {
+        draftPrefs.equipmentMode = "custom";
+        draftPrefs.customEquipment ??= [...draftPrefs.equipment];
+        draftPrefs.equipment = draftPrefs.customEquipment;
+      }
+      rerender();
+      root.querySelector(`[data-equipment-panel="${equipmentPanel}"]`)?.focus({ preventScroll: true });
+    });
+    for (const btn of root.querySelectorAll("button[data-preset]")) btn.addEventListener("click", () => {
+      const preset = btn.dataset.preset;
+      if (draftPrefs.equipmentMode === "custom") draftPrefs.customEquipment = draftPrefs.equipment;
+      draftPrefs.equipmentMode = "presets";
+      draftPrefs.equipment = [...EQUIPMENT_PRESETS[preset].equipment];
+      rerender();
+      root.querySelector(`[data-preset="${preset}"]`)?.focus({ preventScroll: true });
+    });
     for (const btn of root.querySelectorAll("button[data-equip]")) btn.addEventListener("click", () => {
       const k = btn.dataset.equip;
       draftPrefs.equipment = draftPrefs.equipment.includes(k) ? draftPrefs.equipment.filter(x => x !== k) : [...draftPrefs.equipment, k];
+      draftPrefs.customEquipment = draftPrefs.equipment;
       rerender();
+      root.querySelector(`[data-equip="${k}"]`)?.focus({ preventScroll: true });
     });
     const routineInput = root.querySelector("#workout-routine");
     const matchButton = root.querySelector("#match-workout");
@@ -476,8 +658,8 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     root.querySelector("#edit-workout-plan")?.addEventListener("click", () => {
       setStep(steps.findIndex(item => item.title === "Training"), head);
     });
-    routineInput.addEventListener("input", () => { routine = routineInput.value; });
-    matchButton.addEventListener("click", async () => {
+    routineInput?.addEventListener("input", () => { routine = routineInput.value; });
+    matchButton?.addEventListener("click", async () => {
       workoutKeyLink.hidden = true;
       const description = routine.trim();
       if (!description) {
@@ -504,7 +686,11 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         const scheduleChanged = style !== draftPrefs.style || match.daysPerWeek !== draftPrefs.daysPerWeek;
         draftPrefs.style = style;
         draftPrefs.daysPerWeek = match.daysPerWeek;
-        if (match.equipment !== null) draftPrefs.equipment = match.equipment;
+        if (match.equipment !== null) {
+          draftPrefs.equipment = match.equipment;
+          draftPrefs.customEquipment = match.equipment;
+          draftPrefs.equipmentMode = equipmentPanel = "custom";
+        }
         routineMatch = { ...match, style };
         if (scheduleChanged) resetSplits();
         if (match.equipment !== null && !match.equipment.includes("treadmill")) {
@@ -618,15 +804,14 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     for (const card of root.querySelectorAll("[data-set-theme]")) {
       card.addEventListener("click", () => {
         const themeId = card.dataset.setTheme;
-        localStorage.setItem("tempo_theme", themeId);
-        document.documentElement.setAttribute("data-theme", themeId);
-        toast(`Applied ${themeId} theme`);
+        applyTheme(themeId);
+        const t = THEMES.find((x) => x.id === themeId);
+        toast(`${t?.name || themeId} theme applied`);
         rerender();
       });
     }
 
     root.querySelector("#f-reset")?.addEventListener("click", doReset);
-    root.querySelector("#starter-plan")?.addEventListener("click", doStarterPlan);
 
     paintChrome();
     applyTrack(false);
@@ -638,14 +823,6 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     saveDraft(draftSplits);
     toast(destination === "workout" ? "Workout plan saved." : isOnboarding ? "All set — let's go." : "Profile updated.");
     navigate(destination === "workout" || (isOnboarding && requestedTab === "workout") ? "workout" : "today");
-  }
-
-  async function doStarterPlan() {
-    const err = validate(draft);
-    if (err) { await notify(err, { title: "Check your inputs" }); return; }
-    saveDraft(starterSplits());
-    toast("Starter workout ready");
-    navigate("workout");
   }
 
   function saveDraft(splits) {
@@ -662,16 +839,6 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       foodPrefs: { ...draftFood },
       plan,
     }));
-  }
-
-  function starterSplits() {
-    const splits = { ...draftSplits };
-    const today = weekdayKey(new Date());
-    if (splits[today]?.type !== "lift") {
-      const dayKey = STYLE_OPTIONS[draftPrefs.style].keys[0];
-      splits[today] = { type: "lift", day: dayKey, label: DAY_LABEL[dayKey] || "Workout" };
-    }
-    return splits;
   }
 
   async function doReset() {
@@ -731,8 +898,4 @@ function goalDesc(k) {
     muscle:   "+250 kcal surplus. Build muscle with minimal fat gain.",
     maintain: "Stay at current weight, no body composition change.",
   }[k] || "";
-}
-
-function weekdayKey(date) {
-  return ["sun","mon","tue","wed","thu","fri","sat"][date.getDay()];
 }

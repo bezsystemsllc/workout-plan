@@ -4,6 +4,8 @@ import { notify, confirmAction, toast } from "../lib/modal.js";
 import { esc } from "../lib/html.js";
 import { getExerciseHistory, getAllTimePRs } from "../lib/records.js";
 import { getActivePlan } from "../lib/plan.js";
+import { getMeals } from "../lib/meals.js";
+import { summarizePlanProgress } from "../lib/plan-progress.js";
 
 const HISTORY_ROW_LIMIT = 120;
 const CHART_POINT_LIMIT = 180;
@@ -30,6 +32,10 @@ export function renderProgress(root) {
     const allWorkouts = load("workouts");
     const allPRs = getAllTimePRs(allWorkouts);
     const plan = getActivePlan();
+    const planProgress = activeTab === "body" ? summarizePlanProgress({
+      plan, goal: settings.profile?.goal, entries, workouts: allWorkouts,
+      meals: load("meals"), mealPlan: getMeals(settings),
+    }) : null;
 
     // Collect all exercises with logged history or in current plan
     const exerciseSet = new Set(Object.keys(allPRs));
@@ -52,7 +58,7 @@ export function renderProgress(root) {
         <button class="${activeTab === "strength" ? "active" : ""}" id="tab-strength">🏋️ Strength & PRs</button>
       </div>
 
-      ${activeTab === "body" ? renderBodySection(entries, stats, visibleHistory, hiddenHistoryCount) : renderStrengthSection(allWorkouts, allPRs, exerciseList)}
+      ${activeTab === "body" ? renderBodySection(entries, stats, visibleHistory, hiddenHistoryCount, planProgress) : renderStrengthSection(allWorkouts, allPRs, exerciseList)}
 
       <section class="card">
         <h2>Backup & Data</h2>
@@ -84,7 +90,7 @@ export function renderProgress(root) {
     wireBackupEvents(render);
   }
 
-  function renderBodySection(entries, stats, visibleHistory, hiddenHistoryCount) {
+  function renderBodySection(entries, stats, visibleHistory, hiddenHistoryCount, planProgress) {
     return `
       <section class="card">
         <h2>Log entry</h2>
@@ -96,6 +102,8 @@ export function renderProgress(root) {
         </div>
         <div class="hint">Weigh in same time each morning, post-bathroom, pre-food.</div>
       </section>
+
+      ${renderPlanProgress(planProgress)}
 
       <section class="card">
         <h2>Trend</h2>
@@ -135,6 +143,31 @@ export function renderProgress(root) {
           `}
       </section>
     `;
+  }
+
+  function renderPlanProgress({ from, completedDays, scheduledLifts, scheduledLiftsLogged, fullMealChecklists, fourWeekTargetLb, weight, waist }) {
+    const formatChange = (value, unit) => {
+      const magnitude = Number(Math.abs(value).toFixed(1));
+      return magnitude ? `${value > 0 ? "+" : "−"}${magnitude} ${unit}` : `0 ${unit}`;
+    };
+    return `
+      <section class="card">
+        <h2>Plan progress</h2>
+        <p><b>4-week weight benchmark</b> · ${formatChange(dispW(fourWeekTargetLb), wUnit)}</p>
+        <p class="hint">Based on your goal. Results vary with training, food intake, and time.</p>
+        ${weight ? `
+          <p><b>Logged weight over ${weight.days} days</b> · ${formatChange(dispW(weight.changeLb), wUnit)}</p>
+          <p class="hint">Benchmark for the same period · ${formatChange(dispW(weight.targetLb), wUnit)}</p>`
+          : `<p class="hint">Log two weights at least 7 days apart to compare against the benchmark.</p>`}
+        ${waist ? `<p><b>Logged waist over ${waist.days} days</b> · ${formatChange(dispWaist(waist.changeIn), waistUnit)}</p>` : ""}
+        <p class="hint">For strength changes, compare the same exercise over time in Strength &amp; PRs.</p>
+        ${completedDays > 0 ? `
+          <p class="hint">Plan activity since ${esc(from)}, through yesterday</p>
+          <ul>
+            <li>${scheduledLiftsLogged} of ${scheduledLifts} scheduled lifting days with sets logged</li>
+            <li>${fullMealChecklists} of ${completedDays} days with every planned meal checked</li>
+          </ul>` : `<p class="hint">Workout and meal counts appear after the first full day.</p>`}
+      </section>`;
   }
 
   function renderStrengthSection(allWorkouts, allPRs, exerciseList) {

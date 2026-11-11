@@ -37,14 +37,19 @@ export function renderToday(root) {
     .sort((a, b) => a.t - b.t)[0];
 
   root.innerHTML = `
-    <section class="card welcome">
-      <p class="today-greeting">${greeting()}</p>
-      <h2>${esc(split.label)}</h2>
-      ${renderTrainingSummary(split, plan.workouts)}
+    <p class="today-greeting">${greeting()}</p>
+    <section class="card">
+      ${split.type === "rest" ? "<h2>Rest day</h2>" : `
+        <div class="spread today-workout-heading">
+          <h2 style="margin:0">Today's workout</h2>
+          <span class="muted">${esc(split.label)}</span>
+        </div>
+        ${renderTrainingSummary(split, plan.workouts)}
+      `}
       ${split.type === "lift"
         ? `<button class="primary today-action" id="go-workout">Start workout</button>`
         : ""}
-      <button class="today-action" id="go-workout-setup">Set up my workouts</button>
+      <button class="today-action" id="update-workout">Update workout</button>
     </section>
     ${suggestions.map(renderSuggestion).join("")}
 
@@ -122,7 +127,7 @@ export function renderToday(root) {
 
   root.querySelector("#go-meals")?.addEventListener("click", () => navigate("meals"));
   root.querySelector("#go-workout")?.addEventListener("click", () => navigate("workout"));
-  root.querySelector("#go-workout-setup")?.addEventListener("click", () => navigate("settings"));
+  root.querySelector("#update-workout")?.addEventListener("click", () => navigate("settings"));
 
   for (const b of root.querySelectorAll("button[data-add-water]")) {
     b.addEventListener("click", () => {
@@ -314,9 +319,6 @@ function renderSuggestion(s) {
 }
 
 function renderTrainingSummary(split, workouts) {
-  if (split.type === "rest") {
-    return `<p class="muted" style="margin:6px 0 0">Recovery day. Walk, stretch, sleep.</p>`;
-  }
   if (split.type === "cardio") {
     return `
       <div class="cardio-block">

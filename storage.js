@@ -1,3 +1,6 @@
+import { FOODS } from "./data/foods.js";
+import { isUsdaMatch } from "./lib/usda-foods.js";
+
 const KEY = "cut-to-abs:v1";
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^\d{2}:\d{2}$/;
@@ -255,6 +258,10 @@ function normalizeSettings(value, strict) {
       style: ["full", "ul", "ppl"].includes(value.trainingPrefs.style) ? value.trainingPrefs.style : "ppl",
       experience: ["beginner", "intermediate", "advanced"].includes(value.trainingPrefs.experience) ? value.trainingPrefs.experience : "intermediate",
       equipment: normalizeStringArray(value.trainingPrefs.equipment, 30, 40),
+      ...(["presets", "custom"].includes(value.trainingPrefs.equipmentMode)
+        ? { equipmentMode: value.trainingPrefs.equipmentMode } : {}),
+      ...(Array.isArray(value.trainingPrefs.customEquipment)
+        ? { customEquipment: normalizeStringArray(value.trainingPrefs.customEquipment, 30, 40) } : {}),
     };
   }
   if (isPlainObject(value.foodPrefs)) {
@@ -262,7 +269,16 @@ function normalizeSettings(value, strict) {
       diet: ["omnivore", "vegetarian", "pescatarian", "vegan"].includes(value.foodPrefs.diet) ? value.foodPrefs.diet : "omnivore",
       proteins: normalizeStringArray(value.foodPrefs.proteins, 20, 40),
       carbs: normalizeStringArray(value.foodPrefs.carbs, 20, 40),
+      preferredFoods: normalizeStringArray(value.foodPrefs.preferredFoods, 60, 40),
       avoid: normalizeStringArray(value.foodPrefs.avoid, 20, 40),
+      usdaFoods: FOODS.flatMap(food => {
+        const item = Array.isArray(value.foodPrefs.usdaFoods)
+          ? value.foodPrefs.usdaFoods.find(entry => entry?.foodId === food.id)
+          : null;
+        if (!isUsdaMatch(item, food)) return [];
+        const { fdcId, name, kcal, p, f, c } = item;
+        return [{ foodId: food.id, fdcId, name: name.slice(0, 80), kcal, p, f, c }];
+      }),
       seed: Math.round(clampNumber(value.foodPrefs.seed, 0, 1000000, 0)),
     };
   }

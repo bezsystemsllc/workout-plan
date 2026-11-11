@@ -15,6 +15,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/usda-foods"
+  to = "/.netlify/functions/usda-foods"
+  status = 200
+
+[[redirects]]
   # Fallback: serve index.html for any unknown deep link so client-side routing keeps working
   from = "/*"
   to = "/index.html"

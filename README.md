@@ -112,6 +112,8 @@ Netlify settings:
 - Publish directory: `.`
 Set up AI features by saving your own OpenAI key under **Settings → AI coach key**. Workout setup, progress photos, meal analysis, and coach reviews use `gpt-6-luna`.
 
+To enable **Search USDA** in Meals and USDA ingredient matching in **Settings → Food**, set `USDA_FOODDATA_API_KEY` in Netlify’s Functions scope and redeploy. The function queries [USDA FoodData Central](https://fdc.nal.usda.gov/api-guide/) for food names and nutrient values per 100 g. When a user describes their preferences, Tempo looks up to four compatible ingredients it already knows how to plan in grams. The user can select an exact USDA entry before previewing the plan. Tempo calculates portions and totals using those entries, and uses its built-in estimates for other ingredients.
+
 ## Data & privacy
 
 Core data is stored in your browser's `localStorage` and there are no accounts or analytics. The AI coach is opt-in per review: when you tap **Analyze progress**, your browser sends a compact snapshot directly to OpenAI using your key. Use **Progress → Backup** to export/import a JSON snapshot (recommended before clearing browser data).

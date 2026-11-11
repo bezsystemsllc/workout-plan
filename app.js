@@ -6,14 +6,13 @@ import { renderSettings } from "./views/settings.js";
 import { load } from "./storage.js";
 import { RULES } from "./data/meals.js";
 import { openInfo } from "./lib/modal.js";
+import { syncThemeColor } from "./lib/theme.js";
 
 const APP = document.getElementById("app");
 
-// Initialize saved color theme
-const savedTheme = localStorage.getItem("tempo_theme");
-if (savedTheme) {
-  document.documentElement.setAttribute("data-theme", savedTheme);
-}
+// theme-init.js already applied data-theme before first paint; match the
+// browser/PWA status-bar color to it.
+syncThemeColor();
 
 const ROUTES = {
   today: { title: "Today", render: renderToday },

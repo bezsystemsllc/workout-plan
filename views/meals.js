@@ -1,3 +1,4 @@
+import { searchUsdaFoods } from "../lib/usda-foods.js";
 import { getMeals } from "../lib/meals.js";
 import { getActivePlan } from "../lib/plan.js";
 import { load, loadApiKey, update, todayISO } from "../storage.js";
@@ -29,22 +30,23 @@ export function renderMeals(root) {
     return s;
   }
 
-  // AI logging runs on the user's own key only — photos and descriptions go
-  // straight to OpenAI from this device, and photos are never stored.
-  function aiCardHtml() {
-    if (!loadApiKey()) {
-      return `<p class="hint" style="margin-top:10px">🔎 Want to look up a food by name, or log a meal from a photo? Add your own OpenAI key in Settings — requests go straight to OpenAI from this device and photos are never saved.</p>`;
-    }
+  function foodLookupHtml() {
+    const hasAiKey = !!loadApiKey();
     return `
-      <label style="margin-top:10px" for="food-q">Look up a food</label>
+      <label style="margin-top:10px" for="food-q">Look up a food in USDA FoodData Central</label>
       <div class="row" style="gap:8px">
-        <input id="food-q" type="text" style="flex:1" placeholder="2 eggs and a slice of toast" />
-        <button class="ghost" id="food-search" style="min-width:64px">Search</button>
+        <input id="food-q" type="text" style="flex:1;min-width:0" maxlength="200" placeholder="Salmon or rolled oats" />
+        <button type="button" id="usda-food-search">Search USDA</button>
       </div>
-      <button class="ghost" id="photo-log" style="width:100%;margin-top:8px">📷 Log from a photo</button>
-      <input type="file" id="photo-input" accept="image/*" capture="environment" hidden />
+      ${hasAiKey ? `
+        <div class="grid-2" style="margin-top:8px">
+          <button type="button" id="food-search">Estimate with AI</button>
+          <button type="button" id="photo-log">Log from a photo</button>
+        </div>
+        <input type="file" id="photo-input" accept="image/*" capture="environment" hidden />
+        <p class="hint">For an AI estimate, enter a meal and portion, such as “2 eggs and a slice of toast.”</p>
+      ` : ""}
       ${aiProgressHtml("meal-ai-progress")}
-      <p class="hint">Both are estimates — check the numbers before adding.</p>
     `;
   }
 
@@ -184,7 +186,7 @@ export function renderMeals(root) {
               </tbody>
             </table>
           `}
-        ${aiCardHtml()}
+        ${foodLookupHtml()}
         ${savedFoods.length ? `
           <label style="margin-top:10px">Quick-add from My Foods</label>
           <div class="row" style="gap:8px">
@@ -307,13 +309,13 @@ export function renderMeals(root) {
       render();
     });
 
-    // Both AI entry points share one flow: run, then review an editable draft.
+    // Food lookup and AI estimates share an editable draft.
     let aiBusy = false;
-    async function runAiLookup(btn, busyLabel, emptyMessage, errorTitle, lead, run) {
+    async function runFoodLookup(btn, busyLabel, emptyMessage, errorTitle, lead, run) {
       if (!btn || aiBusy) return;
       aiBusy = true;
       const progress = root.querySelector("#meal-ai-progress");
-      const buttons = [...root.querySelectorAll("#food-search, #photo-log")];
+      const buttons = [...root.querySelectorAll("#usda-food-search, #food-search, #photo-log")];
       const labels = new Map(buttons.map((button) => [button, button.textContent]));
       for (const button of buttons) button.disabled = true;
       btn.textContent = busyLabel;
@@ -384,7 +386,7 @@ export function renderMeals(root) {
       const file = e.target.files?.[0];
       e.target.value = ""; // let the same photo be picked again after a cancel
       if (!file) return;
-      await runAiLookup(
+      await runFoodLookup(
         root.querySelector("#photo-log"), "Reading photo…",
         "No food was recognized in that photo. Try a clearer, closer shot.",
         "Photo not analyzed",
@@ -394,7 +396,15 @@ export function renderMeals(root) {
     });
 
     const queryInput = root.querySelector("#food-q");
-    const doSearch = () => runAiLookup(
+    const doUsdaSearch = () => runFoodLookup(
+      root.querySelector("#usda-food-search"), "Searching USDA…",
+      "No USDA results with nutrition data. Try a simpler food name.",
+      "USDA lookup failed",
+      "Choose the matching food. USDA values are per 100 g. Adjust the numbers for the amount you ate.",
+      () => searchUsdaFoods(queryInput.value),
+    );
+    root.querySelector("#usda-food-search")?.addEventListener("click", doUsdaSearch);
+    const doSearch = () => runFoodLookup(
       root.querySelector("#food-search"), "Searching…",
       "That didn't look like a food. Try naming the dish and how much.",
       "Lookup failed",
@@ -403,7 +413,7 @@ export function renderMeals(root) {
     );
     root.querySelector("#food-search")?.addEventListener("click", doSearch);
     queryInput?.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { e.preventDefault(); doSearch(); }
+      if (e.key === "Enter") { e.preventDefault(); doUsdaSearch(); }
     });
   }
 
@@ -416,10 +426,10 @@ function mealItemsReviewHtml(result, lead) {
   const rows = result.items.map((item, i) => `
     <div class="photo-item" data-item-row data-name="${esc(item.name)}">
       <label class="photo-item-head">
-        <input type="checkbox" ${item.confidence === "low" ? "" : "checked"} />
+        <input type="checkbox" ${result.source || item.confidence === "low" ? "" : "checked"} />
         <span>
           <b>${esc(item.name)}</b>
-          <span class="coach-why">${esc(item.portion)}${item.portion ? " · " : ""}<span class="conf conf-${esc(item.confidence)}">${esc(item.confidence)} confidence</span></span>
+          <span class="coach-why">${esc(item.portion)}${item.portion ? " · " : ""}${result.source ? esc(result.source) : `<span class="conf conf-${esc(item.confidence)}">${esc(item.confidence)} confidence</span>`}</span>
         </span>
       </label>
       <div class="photo-macros">
@@ -432,7 +442,7 @@ function mealItemsReviewHtml(result, lead) {
   `).join("");
 
   return `
-    <p class="hint" style="margin-top:0">${esc(lead)} Low-confidence items start unticked.</p>
+    <p class="hint" style="margin-top:0">${esc(lead)}${result.source ? "" : " Low-confidence items start unticked."}</p>
     ${rows}
     ${result.note ? `<p class="coach-why">${esc(result.note)}</p>` : ""}
     <label class="cf-save-row"><input type="checkbox" id="ai-save-foods" /> Save these to My Foods for next time</label>
