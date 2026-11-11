@@ -57,7 +57,6 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
   let routineMatch = null;
   let foodDescription = "";
   let foodDraftApplied = false;
-  let showSetupKey = false;
   const planSeed = settings.plan?.meta?.seed ?? Math.floor(Math.random() * 1000000);
 
   function buildDraftPlan(splits) {
@@ -111,6 +110,16 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       </div>`;
   }
 
+  function setupKeyForm(section) {
+    return `
+      <form data-setup-key="${section}">
+        <p class="hint">Enter your own OpenAI key to continue with AI, or choose Use presets.</p>
+        <label for="${section}-setup-key">OpenAI API key</label>
+        <input id="${section}-setup-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…" />
+        <button type="submit" class="primary">Save key and continue</button>
+      </form>`;
+  }
+
   // Training-plan configuration card (generator + weekly-layout editor).
   function trainingCard() {
     const activePreset = draftPrefs.equipmentMode === "presets" ? matchingPreset() : undefined;
@@ -118,20 +127,19 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       <section class="card">
         <h2>Workout setup</h2>
         ${setupChoices("workout", workoutSetup)}
-        ${workoutSetup === "ai" ? `
+        ${workoutSetup === "ai" ? (loadApiKey() ? `
         <label for="workout-routine">Describe your workout and equipment</label>
         <p class="hint" id="workout-routine-hint">Tell Tempo what you want to train, how many days a week, and what equipment you want to use. Try “Three full-body days with push-ups and rows. I only have dumbbells and a bench.”</p>
         <textarea id="workout-routine" rows="3" maxlength="800" aria-describedby="workout-routine-hint">${esc(routine)}</textarea>
         <button id="match-workout" type="button" class="primary">Suggest workout template</button>
         <p class="hint" id="workout-match-status" role="status">${routineMatch ? "Workout preview ready." : "Uses your saved OpenAI key."}</p>
-        <a id="workout-key-link" href="#ai-coach-key" hidden>Go to AI coach key</a>
         ${routineMatch ? `
           <div id="workout-preview">${workoutPreview()}</div>
           <div class="training-buttons">
             ${!isOnboarding ? `<button id="use-workout-plan" type="button" class="primary">Save workout plan</button>` : ""}
             <button id="edit-workout-plan" type="button">Edit plan settings</button>
           </div>` : ""}
-        ` : ""}
+        ` : setupKeyForm("workout")) : ""}
         ${workoutSetup === "presets" ? `
         <p class="hint">Built from these plus your goal (${GOAL[draft.goal].label}). Swap exercises and tweak sets anytime on the Workout tab.</p>
 
@@ -255,13 +263,12 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       <section class="card">
         <h2>Meal setup</h2>
         ${setupChoices("food", foodSetup)}
-        ${foodSetup === "ai" ? `
+        ${foodSetup === "ai" ? (loadApiKey() ? `
         <label for="food-description">Describe how you like to eat</label>
         <textarea id="food-description" rows="3" maxlength="800" placeholder="I like salmon, canned tuna, eggs, and rice. I avoid dairy.">${esc(foodDescription)}</textarea>
         <button id="suggest-food" class="primary" type="button">Suggest weekly meal plan</button>
         <p id="food-match-status" class="hint" role="status">${foodDraftApplied ? "Preferences applied to your draft. Save from Review." : "Uses your own OpenAI key."}</p>
-        <a id="food-key-link" href="#ai-coach-key" hidden>Go to AI coach key</a>
-        ` : ""}
+        ` : setupKeyForm("food")) : ""}
         ${foodSetup === "presets" ? `
         <p class="hint">Choose your diet, favorite food groups, and foods to avoid.</p>
         ${preferredFoods.length ? `
@@ -418,7 +425,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       <div class="wizard"><div class="wizard-track">${steps.map(s => `<div class="wizard-step">${s.html}</div>`).join("")}</div></div>
       <div class="wiz-nav"></div>
       ${!isOnboarding ? themePickerCard() : ""}
-      ${!isOnboarding || showSetupKey ? coachKeyCard() : ""}
+      ${!isOnboarding ? coachKeyCard() : ""}
       ${!isOnboarding ? `
         <section class="card">
           <h2>Progress photos</h2>
@@ -498,7 +505,9 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         if (setup === "workout") workoutSetup = mode;
         else foodSetup = mode;
         rerender();
-        root.querySelector(`[data-setup="${setup}"][data-mode="${mode}"]`)?.focus({ preventScroll: true });
+        const focusTarget = root.querySelector(`#${setup}-setup-key`) ||
+          root.querySelector(`[data-setup="${setup}"][data-mode="${mode}"]`);
+        focusTarget?.focus({ preventScroll: true });
       });
     }
 
@@ -546,24 +555,13 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     const foodInput = root.querySelector("#food-description");
     const foodButton = root.querySelector("#suggest-food");
     const foodStatus = root.querySelector("#food-match-status");
-    const foodKeyLink = root.querySelector("#food-key-link");
     root.querySelector("#clear-preferred-foods")?.addEventListener("click", () => {
       draftFood.preferredFoods = [];
       draftFood.usdaFoods = [];
       rerender();
     });
-    function goToAiKey(event) {
-      event.preventDefault();
-      if (isOnboarding && !showSetupKey) {
-        showSetupKey = true;
-        rerender();
-      }
-      root.querySelector("#ai-coach-key")?.scrollIntoView({ block: "start" });
-    }
-    foodKeyLink?.addEventListener("click", goToAiKey);
     foodInput?.addEventListener("input", () => { foodDescription = foodInput.value; });
     foodButton?.addEventListener("click", async () => {
-      foodKeyLink.hidden = true;
       const description = foodDescription.trim();
       if (!description) {
         foodStatus.textContent = "Describe your food preferences first.";
@@ -572,9 +570,8 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       }
       const key = loadApiKey();
       if (!key) {
-        foodStatus.textContent = "Add your OpenAI key to suggest a meal plan.";
-        foodKeyLink.hidden = false;
-        applyTrack(false);
+        rerender();
+        root.querySelector("#food-setup-key")?.focus();
         return;
       }
       const idleLabel = foodButton.textContent;
@@ -694,8 +691,6 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     const routineInput = root.querySelector("#workout-routine");
     const matchButton = root.querySelector("#match-workout");
     const matchStatus = root.querySelector("#workout-match-status");
-    const workoutKeyLink = root.querySelector("#workout-key-link");
-    workoutKeyLink?.addEventListener("click", goToAiKey);
     root.querySelector("#use-workout-plan")?.addEventListener("click", () => doSave("workout"));
     root.querySelector("#edit-workout-plan")?.addEventListener("click", () => {
       workoutSetup = "presets";
@@ -704,7 +699,6 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     });
     routineInput?.addEventListener("input", () => { routine = routineInput.value; });
     matchButton?.addEventListener("click", async () => {
-      workoutKeyLink.hidden = true;
       const description = routine.trim();
       if (!description) {
         matchStatus.textContent = "Describe your routine first.";
@@ -713,9 +707,8 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       }
       const apiKey = loadApiKey();
       if (!apiKey) {
-        matchStatus.textContent = "Add an OpenAI key to suggest a workout template.";
-        workoutKeyLink.hidden = false;
-        applyTrack(false);
+        rerender();
+        root.querySelector("#workout-setup-key")?.focus();
         return;
       }
       const idleLabel = matchButton.textContent;
@@ -773,8 +766,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       toast("Fresh exercises generated");
       navigate("workout");
     });
-    root.querySelector("#f-api-save")?.addEventListener("click", async () => {
-      const input = root.querySelector("#f-api-key");
+    async function saveKeyFrom(input, nextField) {
       const value = input.value.trim();
       if (!value) { await notify("Paste your OpenAI key first.", { title: "No key entered" }); return; }
       if (!/^sk-\S{16,}$/.test(value)) {
@@ -782,10 +774,21 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         return;
       }
       saveApiKey(value);
+      if (loadApiKey() !== value) return;
       input.value = "";
-      toast("Coach key saved to this device");
+      toast("OpenAI key saved to this browser");
       rerender();
-    });
+      if (nextField) root.querySelector(nextField)?.focus();
+    }
+
+    for (const form of root.querySelectorAll("[data-setup-key]")) {
+      form.addEventListener("submit", event => {
+        event.preventDefault();
+        const nextField = form.dataset.setupKey === "workout" ? "#workout-routine" : "#food-description";
+        saveKeyFrom(form.querySelector("input"), nextField);
+      });
+    }
+    root.querySelector("#f-api-save")?.addEventListener("click", () => saveKeyFrom(root.querySelector("#f-api-key")));
     root.querySelector("#f-api-clear")?.addEventListener("click", async () => {
       const ok = await confirmAction(
         "AI features require a saved OpenAI key.",
