@@ -327,7 +327,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
               <label>Training notes (optional)
                 <textarea name="notes" rows="2" maxlength="800" placeholder="Time between photos, workouts per week, or lifts that have stalled"></textarea>
               </label>
-              <button type="submit">Compare photos with AI</button>
+              <button type="submit" class="primary">Compare photos with AI</button>
             </fieldset>
           </form>
           <p id="progress-photo-status" class="hint" role="status"></p>
