@@ -16,7 +16,6 @@ export function renderMeals(root) {
   const profile = settings.profile;
   const metric = settings.units === "metric";
   const waterUnit = metric ? "mL" : "oz";
-  const waterStep = metric ? 250 : 8;
   const showWater = (ml) => metric ? Math.round(ml) : mlToOz(ml);
 
   // Meals from the food-preference generator (or scaled static template if unset).
@@ -223,9 +222,9 @@ export function renderMeals(root) {
       toast(msg);
       render();
     };
-    root.querySelector("#w-cup")?.addEventListener("click", () => bumpWater(250));
-    root.querySelector("#w-bottle")?.addEventListener("click", () => bumpWater(500));
-    root.querySelector("#w-shaker")?.addEventListener("click", () => bumpWater(750));
+    root.querySelector("#w-cup")?.addEventListener("click", () => bumpWater(metric ? 250 : 237));
+    root.querySelector("#w-bottle")?.addEventListener("click", () => bumpWater(metric ? 500 : 473));
+    root.querySelector("#w-shaker")?.addEventListener("click", () => bumpWater(metric ? 750 : 710));
     root.querySelector("#w-minus")?.addEventListener("click", () => bumpWater(metric ? -250 : -237));
 
     root.querySelector("#shuffle-meals")?.addEventListener("click", () => {

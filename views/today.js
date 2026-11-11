@@ -314,7 +314,7 @@ function renderTrainingSummary(split, workouts) {
   if (split.type === "cardio") {
     return `
       <div class="cardio-block">
-        <span class="ex-icon-wrap">${iconFor(null, "cardio")}</span>
+        <span class="ex-icon-wrap">${iconFor(split.label, "cardio")}</span>
         <p class="muted" style="margin:0">${esc(split.detail || "Conditioning day — treadmill.")}</p>
       </div>`;
   }

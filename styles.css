@@ -578,20 +578,225 @@ body.modal-open { overflow: hidden; }
 .workout-details-body .exercise:first-child { margin-top: 0; }
 .ex-icon-wrap {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 44px; height: 44px;
-  background: var(--surface-2); border-radius: 10px;
+  width: 50px; height: 50px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
   color: var(--accent);
   flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
-.ex-icon { display: block; }
+.ex-icon-wrap:hover {
+  transform: scale(1.06);
+}
+.ex-icon { display: block; width: 42px; height: 42px; overflow: visible; }
+.guided-set .ex-icon-wrap {
+  width: 58px; height: 58px; border-radius: 14px;
+}
+.guided-set .ex-icon { width: 50px; height: 50px; }
+
+/* Category color coding so Push / Pull / Legs / Core / Cardio are distinct at a glance */
+.ex-icon-wrap:has(.ex-cat-push) {
+  --ex-hi: #10b981;
+  color: #34d399;
+  background: color-mix(in srgb, #10b981 12%, var(--surface-2));
+  border-color: color-mix(in srgb, #10b981 35%, var(--border));
+}
+.ex-icon-wrap:has(.ex-cat-pull) {
+  --ex-hi: #38bdf8;
+  color: #38bdf8;
+  background: color-mix(in srgb, #38bdf8 12%, var(--surface-2));
+  border-color: color-mix(in srgb, #38bdf8 35%, var(--border));
+}
+.ex-icon-wrap:has(.ex-cat-legs) {
+  --ex-hi: #f59e0b;
+  color: #fbbf24;
+  background: color-mix(in srgb, #f59e0b 12%, var(--surface-2));
+  border-color: color-mix(in srgb, #f59e0b 35%, var(--border));
+}
+.ex-icon-wrap:has(.ex-cat-core) {
+  --ex-hi: #a855f7;
+  color: #c084fc;
+  background: color-mix(in srgb, #a855f7 12%, var(--surface-2));
+  border-color: color-mix(in srgb, #a855f7 35%, var(--border));
+}
+.ex-icon-wrap:has(.ex-cat-cardio) {
+  --ex-hi: #f43f5e;
+  color: #fb7185;
+  background: color-mix(in srgb, #f43f5e 12%, var(--surface-2));
+  border-color: color-mix(in srgb, #f43f5e 35%, var(--border));
+}
+
+/* Dynamic SVG rep-path animations */
+.ex-icon g[class^="ex-anim-"] {
+  transform-box: view-box;
+  will-change: transform;
+}
+.ex-muscle-glow {
+  animation: ex-glow 1.8s ease-in-out infinite alternate;
+}
+.ex-anim-press-v {
+  animation: ex-press-v 1.8s ease-in-out infinite;
+}
+.ex-anim-pushup {
+  transform-origin: 10px 38px;
+  animation: ex-pushup 1.8s ease-in-out infinite;
+}
+.ex-anim-shift-r {
+  animation: ex-shift-r 1.8s ease-in-out infinite;
+}
+.ex-anim-shift-l {
+  animation: ex-shift-l 1.8s ease-in-out infinite;
+}
+.ex-anim-lat-l {
+  transform-origin: 21px 16px;
+  animation: ex-lat-l 1.9s ease-in-out infinite;
+}
+.ex-anim-lat-r {
+  transform-origin: 27px 16px;
+  animation: ex-lat-r 1.9s ease-in-out infinite;
+}
+.ex-anim-pushdown {
+  transform-origin: 22px 20px;
+  animation: ex-pushdown 1.8s ease-in-out infinite;
+}
+.ex-anim-row-v {
+  animation: ex-row-v 1.8s ease-in-out infinite;
+}
+.ex-anim-pullup {
+  animation: ex-pullup 2s ease-in-out infinite;
+}
+.ex-anim-curl {
+  transform-origin: 25px 24px;
+  animation: ex-curl 1.8s ease-in-out infinite;
+}
+.ex-anim-squat {
+  animation: ex-squat 2s ease-in-out infinite;
+}
+.ex-anim-hinge {
+  transform-origin: 30px 23px;
+  animation: ex-hinge 2.1s ease-in-out infinite;
+}
+.ex-anim-swing {
+  transform-origin: 19px 18px;
+  animation: ex-swing 1.6s ease-in-out infinite;
+}
+.ex-anim-calf {
+  animation: ex-calf 1.5s ease-in-out infinite;
+}
+.ex-anim-legraise {
+  transform-origin: 23px 32px;
+  animation: ex-legraise 1.9s ease-in-out infinite;
+}
+.ex-anim-crunch {
+  transform-origin: 17px 33px;
+  animation: ex-crunch 1.8s ease-in-out infinite;
+}
+.ex-anim-twist {
+  transform-origin: 24px 34px;
+  animation: ex-twist 1.6s ease-in-out infinite;
+}
+.ex-anim-pulse {
+  animation: ex-pulse 1.6s ease-in-out infinite alternate;
+}
+.ex-anim-run {
+  animation: ex-run 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes ex-glow {
+  from { opacity: 0.2; }
+  to { opacity: 0.55; }
+}
+@keyframes ex-press-v {
+  0%, 100% { transform: translateY(3px); }
+  50% { transform: translateY(-3px); }
+}
+@keyframes ex-pushup {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(10deg) translateY(2px); }
+}
+@keyframes ex-shift-r {
+  0%, 100% { transform: translateX(-3px); }
+  50% { transform: translateX(3px); }
+}
+@keyframes ex-shift-l {
+  0%, 100% { transform: translateX(3px); }
+  50% { transform: translateX(-3px); }
+}
+@keyframes ex-lat-l {
+  0%, 100% { transform: rotate(-22deg); }
+  50% { transform: rotate(8deg); }
+}
+@keyframes ex-lat-r {
+  0%, 100% { transform: rotate(22deg); }
+  50% { transform: rotate(-8deg); }
+}
+@keyframes ex-pushdown {
+  0%, 100% { transform: translateY(-2.5px); }
+  50% { transform: translateY(2.5px); }
+}
+@keyframes ex-row-v {
+  0%, 100% { transform: translateY(2.5px); }
+  50% { transform: translateY(-3px); }
+}
+@keyframes ex-pullup {
+  0%, 100% { transform: translateY(3px); }
+  50% { transform: translateY(-3.5px); }
+}
+@keyframes ex-curl {
+  0%, 100% { transform: rotate(28deg); }
+  50% { transform: rotate(-12deg); }
+}
+@keyframes ex-squat {
+  0%, 100% { transform: translateY(-2px); }
+  50% { transform: translateY(3.5px); }
+}
+@keyframes ex-hinge {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-14deg); }
+}
+@keyframes ex-swing {
+  0%, 100% { transform: rotate(32deg); }
+  50% { transform: rotate(-8deg); }
+}
+@keyframes ex-calf {
+  0%, 100% { transform: translateY(1.5px); }
+  50% { transform: translateY(-3px); }
+}
+@keyframes ex-legraise {
+  0%, 100% { transform: rotate(24deg); }
+  50% { transform: rotate(-10deg); }
+}
+@keyframes ex-crunch {
+  0%, 100% { transform: rotate(-10deg); }
+  50% { transform: rotate(10deg); }
+}
+@keyframes ex-twist {
+  0%, 100% { transform: translateX(-2px) rotate(-5deg); }
+  50% { transform: translateX(2px) rotate(5deg); }
+}
+@keyframes ex-pulse {
+  from { transform: translateY(0.8px); }
+  to { transform: translateY(-1.2px); }
+}
+@keyframes ex-run {
+  from { transform: translate(-1.5px, 1px); }
+  to { transform: translate(1.5px, -1.5px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ex-icon g[class^="ex-anim-"], .ex-muscle-glow { animation: none !important; }
+}
+
 .today-ex-list { list-style: none; padding: 0; margin: 6px 0 0; }
 .today-ex-list li {
   display: flex; align-items: center; gap: 10px;
   padding: 6px 0; border-bottom: 1px solid var(--border);
 }
 .today-ex-list li:last-child { border-bottom: none; }
-.today-ex-list .ex-icon-wrap { width: 32px; height: 32px; border-radius: 8px; }
-.today-ex-list .ex-icon { width: 28px; height: 28px; }
+.today-ex-list .ex-icon-wrap { width: 40px; height: 40px; border-radius: 10px; }
+.today-ex-list .ex-icon { width: 34px; height: 34px; }
 .today-ex-list .meta { font-size: 12px; color: var(--muted); }
 
 .timer-modal {

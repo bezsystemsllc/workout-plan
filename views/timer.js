@@ -151,7 +151,8 @@ export function mountTimer(initialSeconds = 90, { exerciseName = "Rest", autoMin
     `;
 
     root.querySelector("#tm-done-btn").addEventListener("click", close);
-    setTimeout(() => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => {
       if (remaining <= 0) close();
     }, 8000);
   }
@@ -300,6 +301,7 @@ function playRestTone() {
       osc.start(now + start);
       osc.stop(now + start + dur);
     });
+    setTimeout(() => ctx.close?.(), 900);
 
     if (navigator.vibrate) {
       navigator.vibrate([180, 80, 240]);

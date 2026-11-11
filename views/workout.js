@@ -9,7 +9,7 @@ import { esc } from "../lib/html.js";
 import { load, update, todayISO } from "../storage.js";
 import { mountTimer } from "./timer.js";
 import { openPlateCalculator } from "../lib/plate-calc.js";
-import { checkSetForPR, launchConfetti, getAllTimePRs } from "../lib/records.js";
+import { checkSetForPR, estimate1RM, launchConfetti, getAllTimePRs } from "../lib/records.js";
 
 export function renderWorkout(root) {
   let viewedDate = todayISO();
@@ -204,7 +204,7 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
 
   root.querySelector("#open-plate-calc")?.addEventListener("click", () => {
     const loadEl = root.querySelector("[data-guide-field='w']");
-    const currentVal = loadEl?.value || activeSet?.meta?.targetW || (starterContext?.units === "metric" ? 60 : 135);
+    const currentVal = loadEl?.value || loadEl?.placeholder || (starterContext?.units === "metric" ? 60 : 135);
     openPlateCalculator({
       targetWeight: currentVal,
       metric: starterContext?.units === "metric",
@@ -443,7 +443,11 @@ function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, progressionH
       ${logged.sets.map((s, si) => {
         const l = lastSets[si];
         const lastLbl = l && (l.w || l.r) ? `${l.w || "—"}×${l.r || "—"}` : "—";
-        const isPR = exPR && s.w && s.r && (+s.w >= exPR.maxWeight || (s.w * (1 + s.r/30)) >= exPR.best1RM);
+        const set1RM = estimate1RM(s.w, s.r);
+        const isPR = exPR && exPR.best1RM > 0 && set1RM > 0 && (
+          set1RM >= exPR.best1RM ||
+          (+s.w >= exPR.maxWeight && +s.r >= (exPR.bestRepsAtWeight?.reps || 1))
+        );
         return `
           <div class="set-row">
             <span class="idx">${si + 1} ${isPR ? `<span class="pr-badge" title="Lifetime PR">🏆</span>` : ""}</span>

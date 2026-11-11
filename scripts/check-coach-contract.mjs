@@ -1,5 +1,5 @@
 // The coach prompt and JSON schema exist twice — lib/coach-contract.js (browser,
-// used when a user brings their own key) and netlify/functions/coach.js (server,
+// used when a user brings their own key) and lib/server/coach-handler.js (server,
 // owner-funded). The project has no build step, so they cannot share a module.
 // This check fails if they drift, which would let the two paths give different
 // safety guidance.
@@ -12,7 +12,7 @@ import { dirname, join } from "node:path";
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..");
 const clientSrc = readFileSync(join(repo, "lib/coach-contract.js"), "utf8");
-const serverSrc = readFileSync(join(repo, "netlify/functions/coach.js"), "utf8");
+const serverSrc = readFileSync(join(repo, "lib/server/coach-handler.js"), "utf8");
 
 let failed = false;
 const fail = (msg) => { failed = true; console.error(`DRIFT: ${msg}`); };

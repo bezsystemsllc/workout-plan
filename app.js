@@ -33,6 +33,8 @@ function currentTab() {
   return ROUTES[seg] ? seg : "today";
 }
 
+let routeTimer = null;
+
 function route() {
   const settings = load("settings");
   const needsOnboarding = !settings.profile;
@@ -59,13 +61,16 @@ function route() {
     window.scrollTo(0, 0);
   };
 
+  clearTimeout(routeTimer);
   if (APP.innerHTML.trim() !== "") {
     APP.classList.add("fade-out");
-    setTimeout(() => {
+    routeTimer = setTimeout(() => {
+      routeTimer = null;
       renderContent();
       APP.classList.remove("fade-out");
     }, 150);
   } else {
+    APP.classList.remove("fade-out");
     renderContent();
   }
 }
