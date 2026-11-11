@@ -35,7 +35,8 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
 
   let draft = { ...profile };
   let draftUnits = units;
-  let draftPrefs = { ...DEFAULT_PREFS, ...(settings.trainingPrefs || {}) };
+  const savedPrefs = { ...DEFAULT_PREFS, ...(settings.trainingPrefs || {}) };
+  let draftPrefs = { ...savedPrefs };
   let draftSplits = settings.plan?.splits
     ? { ...settings.plan.splits }
     : buildSplits(draftPrefs.style, draftPrefs.daysPerWeek, draft.goal);
@@ -44,6 +45,11 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
 
   function resetSplits() {
     draftSplits = buildSplits(draftPrefs.style, draftPrefs.daysPerWeek, draft.goal);
+  }
+
+  function equipmentChanged() {
+    return draftPrefs.equipment.length !== savedPrefs.equipment.length ||
+      draftPrefs.equipment.some(item => !savedPrefs.equipment.includes(item));
   }
 
   // Training-plan configuration card (generator + weekly-layout editor).
@@ -61,7 +67,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         </div>
 
         <h3>Split style</h3>
-        <div class="grid-2">
+        <div class="training-buttons">
           ${Object.entries(STYLE_OPTIONS).map(([k, v]) => `<button class="${draftPrefs.style === k ? "primary" : ""}" data-style="${k}">${v.label}</button>`).join("")}
         </div>
 
@@ -72,13 +78,14 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
 
         <h3>Equipment</h3>
         <p class="hint" style="margin-top:0">Where do you train? Pick a preset, then fine-tune below.</p>
-        <div class="grid-2">
+        <div class="training-buttons">
           ${Object.entries(EQUIPMENT_PRESETS).map(([k, v]) => `<button class="${activePreset === k ? "primary" : ""}" data-preset="${k}">${v.label}</button>`).join("")}
         </div>
-        <div class="chips" style="margin-top:10px">
+        <div class="chips training-buttons" style="margin-top:10px">
           ${Object.entries(EQUIPMENT).filter(([k]) => k !== "bodyweight").map(([k, label]) =>
             `<button class="chip ${draftPrefs.equipment.includes(k) ? "on" : ""}" data-equip="${k}">${label}</button>`).join("")}
         </div>
+        ${settings.plan && equipmentChanged() ? `<p class="hint">Saving rebuilds your workouts and resets exercise swaps. Your weekly layout and workout logs are kept.</p>` : ""}
       </section>
     `;
   }
@@ -462,10 +469,10 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
   function saveDraft(splits) {
     const targets = computeTargets(draft);
     const targetWeightLb = projectTargetWeightLb(draft);
-    // Keep the existing seed so re-saving settings doesn't reshuffle exercises;
-    // first-time plans get a random seed so each user's plan feels their own.
+    // Keep the existing seed unless this is the first plan.
     const seed = settings.plan?.meta?.seed ?? Math.floor(Math.random() * 1000000);
-    const plan = generatePlan({ ...draftPrefs, splits }, draft, { preserve: settings.plan, seed });
+    const preserve = equipmentChanged() ? null : settings.plan;
+    const plan = generatePlan({ ...draftPrefs, splits }, draft, { preserve, seed });
     update("settings", (s) => ({
       ...s,
       profile: { ...draft },

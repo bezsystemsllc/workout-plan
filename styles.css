@@ -881,6 +881,14 @@ select {
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .chips .chip { min-height: 40px; padding: 8px 12px; font-size: 13px; }
 .chips .chip.on { background: color-mix(in srgb, var(--accent) 16%, var(--surface-2)); border-color: var(--accent); color: var(--text); }
+.training-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 8px;
+}
+.training-buttons button { text-align: center; }
+.training-buttons button.primary:hover { transform: none; }
 .week-edit { display: grid; gap: 6px; margin-top: 6px; }
 .week-row { display: grid; grid-template-columns: 44px 1fr; align-items: center; gap: 10px; }
 .week-row .wd { font-weight: 600; color: var(--muted); font-size: 13px; }
