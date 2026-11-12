@@ -1,6 +1,6 @@
 /* ── Themes ─────────────────────────────────────────────────────────────────
-   Every theme defines the same tokens. Components use tokens only (never a
-   raw hex), so all four palettes stay legible.
+   Themes share the same color roles. Use these tokens for app controls and
+   surfaces so all four palettes stay legible.
      --accent / --accent-2  primary + secondary hue (gradients, glows)
      --on-accent            text drawn on top of the accent
      --c-*                  workout-category and macro colors
@@ -18,6 +18,7 @@
   --on-accent: #032219;
   --warn: #f59e0b;
   --danger: #f43f5e;
+  --on-danger: #21050b;
   --glow-strength: 14%;
   --c-push: #34d399; --c-pull: #38bdf8; --c-legs: #fbbf24; --c-core: #c084fc; --c-cardio: #fb7185;
   --c-protein: #fb7185; --c-fat: #fbbf24; --c-carbs: #60a5fa; --c-water: #22d3ee;
@@ -38,6 +39,7 @@
   --on-accent: #03141f;
   --warn: #f59e0b;
   --danger: #f43f5e;
+  --on-danger: #21050b;
   --glow-strength: 12%;
   --c-push: #34d399; --c-pull: #38bdf8; --c-legs: #fbbf24; --c-core: #c084fc; --c-cardio: #fb7185;
   --c-protein: #fb7185; --c-fat: #fbbf24; --c-carbs: #818cf8; --c-water: #38bdf8;
@@ -58,6 +60,7 @@
   --on-accent: #2a1503;
   --warn: #fb923c;
   --danger: #f43f5e;
+  --on-danger: #21050b;
   --glow-strength: 14%;
   --c-push: #34d399; --c-pull: #38bdf8; --c-legs: #fbbf24; --c-core: #c084fc; --c-cardio: #fb7185;
   --c-protein: #fb7185; --c-fat: #fcd34d; --c-carbs: #60a5fa; --c-water: #38bdf8;
@@ -73,14 +76,15 @@
   --border: #dbe2ea;
   --text: #0d1520;
   --muted: #5b6a7c;
-  --accent: #059669;
-  --accent-2: #0891b2;
+  --accent: #047857;
+  --accent-2: #0e7490;
   --on-accent: #ffffff;
-  --warn: #d97706;
-  --danger: #e11d48;
+  --warn: #92400e;
+  --danger: #be123c;
+  --on-danger: #ffffff;
   --glow-strength: 10%;
-  --c-push: #059669; --c-pull: #0284c7; --c-legs: #d97706; --c-core: #9333ea; --c-cardio: #e11d48;
-  --c-protein: #e11d48; --c-fat: #d97706; --c-carbs: #2563eb; --c-water: #0891b2;
+  --c-push: #047857; --c-pull: #0369a1; --c-legs: #92400e; --c-core: #9333ea; --c-cardio: #be123c;
+  --c-protein: #be123c; --c-fat: #92400e; --c-carbs: #1d4ed8; --c-water: #0e7490;
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05), 0 4px 14px rgba(15, 23, 42, 0.06);
   --shadow-md: 0 10px 30px rgba(15, 23, 42, 0.1);
 }
@@ -104,22 +108,12 @@ body::before {
     radial-gradient(90% 50% at 0% 0%, color-mix(in srgb, var(--accent) var(--glow-strength), transparent) 0%, transparent 66%);
 }
 
-/* Date/time picker icons: brighten on dark themes only */
-input[type="date"]::-webkit-calendar-picker-indicator,
-input[type="time"]::-webkit-calendar-picker-indicator {
-  filter: invert(0.7);
-  cursor: pointer;
-}
-[data-theme="light"] input[type="date"]::-webkit-calendar-picker-indicator,
-[data-theme="light"] input[type="time"]::-webkit-calendar-picker-indicator {
-  filter: none;
-}
-
 * { box-sizing: border-box; }
 
 html, body {
   margin: 0;
   color: var(--text);
+  accent-color: var(--accent);
   font: 15px/1.5 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   -webkit-tap-highlight-color: transparent;
 }
@@ -162,15 +156,6 @@ body {
 .today-action { width: 100%; margin-top: 12px; }
 .today-hydration .water-stats-row { flex-wrap: wrap; gap: 4px 12px; }
 .today-hydration h2 { margin: 0; }
-.today-coach #coach-review {
-  background: var(--accent);
-  color: var(--on-accent, #081510);
-}
-[data-theme="light"] .today-coach #coach-review {
-  background: color-mix(in srgb, var(--accent) 80%, black);
-  color: white;
-}
-
 /* Help sheet (daily rules) */
 .modal-lead { margin: 0 0 10px; font-size: 14px; color: var(--text); }
 .help-rules { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
@@ -364,7 +349,7 @@ body.onboarding { padding-bottom: env(safe-area-inset-bottom); }
 .opt-stack .opt.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface-2)); color: var(--text); }
 
 .suggestion { border-left: 4px solid var(--accent); }
-.suggestion.suggestion-celebrate { border-left-color: #fbbf24; background: color-mix(in srgb, #fbbf24 8%, var(--surface)); }
+.suggestion.suggestion-celebrate { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
 .suggestion .sugg-title { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
 .suggestion .sugg-body { font-size: 13px; color: var(--muted); line-height: 1.45; }
 
@@ -421,7 +406,7 @@ body.onboarding { padding-bottom: env(safe-area-inset-bottom); }
   background: var(--surface); color: var(--text);
   border: 1px solid var(--border); border-radius: 14px;
   padding: 20px; max-width: 380px; width: 100%;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-md);
   animation: pop-in 160ms ease-out;
   display: flex; flex-direction: column;
   max-height: 100%; min-height: 0;
@@ -488,7 +473,7 @@ body.modal-open { overflow: hidden; }
 .conf-medium { color: var(--warn); }
 .conf-low { color: var(--danger); }
 .modal-buttons button { min-width: 80px; }
-.modal-buttons button.danger { background: var(--danger); border-color: var(--danger); color: white; }
+.modal-buttons button.danger { background: var(--danger); border-color: var(--danger); color: var(--on-danger); }
 
 .toast {
   position: fixed; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom));
@@ -497,7 +482,7 @@ body.modal-open { overflow: hidden; }
   border: 1px solid var(--border);
   padding: 10px 16px; border-radius: 999px;
   font-size: 13px; font-weight: 500;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-sm);
   opacity: 0; transition: opacity 200ms ease, transform 200ms ease;
   z-index: 50; pointer-events: none;
   max-width: 90vw; text-align: center;
@@ -857,9 +842,7 @@ button, .btn, .tab, select { touch-action: manipulation; }
 /* ── Dynamic plan + customization UI ────────────────────────────────────── */
 
 select {
-  appearance: none;
-  background: var(--surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' stroke='%238a96a3' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center;
-  background-size: 12px;
+  background-color: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -884,6 +867,7 @@ select {
   border-radius: 8px; color: var(--muted);
 }
 .exercise .swap select {
+  appearance: none;
   position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0;
   margin: 0; padding: 0; border: none; background: transparent;
   color: transparent; font-size: 16px; /* 16px avoids iOS zoom-on-focus */
@@ -1013,7 +997,7 @@ select {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 999px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-md);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   z-index: 95;
@@ -1298,7 +1282,7 @@ select {
 
 @keyframes pr-pulse {
   0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.25); filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.8)); }
+  50% { transform: scale(1.25); filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 80%, transparent)); }
 }
 
 .pr-card {
@@ -1403,6 +1387,7 @@ select {
 .theme-card-text { display: flex; flex-direction: column; min-width: 0; }
 .theme-card-text b { font-size: 13px; }
 .theme-swatch {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
   width: 28px;
   height: 28px;
   border-radius: 999px;

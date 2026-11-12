@@ -242,7 +242,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         <div class="theme-picker-grid">
           ${THEMES.map(t => `
             <button type="button" class="theme-card ${active === t.id ? "active" : ""}" data-set-theme="${t.id}" aria-pressed="${active === t.id}">
-              <span class="theme-swatch" style="background:${t.swatch}"></span>
+              <span class="theme-swatch" data-theme="${t.id}" aria-hidden="true"></span>
               <span class="theme-card-text">
                 <b>${t.name}</b>
                 <span class="muted small">${t.desc}</span>
