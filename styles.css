@@ -835,7 +835,8 @@ body.modal-open { overflow: hidden; }
 .empty { padding: 20px; text-align: center; color: var(--muted); }
 .small { font-size: 12px; }
 .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.grid-2 > * { min-width: 0; }
 
 button, .btn, .tab, select { touch-action: manipulation; }
 
@@ -954,7 +955,7 @@ select {
 .week-row .wd { font-weight: 600; color: var(--muted); font-size: 13px; }
 .week-row select { width: 100%; min-height: 40px; }
 
-/* Settings wizard — stepped form that slides left/right instead of scrolling */
+/* First-time setup shows one step at a time. */
 .wiz-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
 .wiz-step-label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
 .wiz-dots { display: flex; gap: 2px; }
@@ -967,8 +968,8 @@ select {
 }
 .wiz-dot.active::before { width: 22px; background: var(--accent); border-color: var(--accent); }
 .wizard { overflow: hidden; }
-.wizard-track { display: flex; align-items: flex-start; will-change: transform; }
-.wizard-step { flex: 0 0 100%; }
+.wizard-track { display: block; }
+.wizard-step { min-width: 0; }
 .wizard-step .card { margin-bottom: 0; }
 .wiz-nav { display: flex; gap: 10px; margin-top: 12px; }
 .wiz-nav button { flex: 1; }
@@ -1533,3 +1534,17 @@ select {
 @media (prefers-reduced-motion: reduce) {
   .floating-timer-bar, .floating-pulse, .timer-bell-icon, .plate-modal-backdrop, .pr-badge { animation: none !important; }
 }
+
+/* Direct settings sections and compact daily actions. */
+.settings-menu { display: grid; gap: 12px; }
+.settings-menu button { display: grid; gap: 6px; text-align: left; padding: 18px; justify-content: stretch; justify-items: start; }
+.settings-menu b { font-size: 17px; }
+.settings-menu span { color: var(--muted); font-size: 14px; font-weight: 400; line-height: 1.45; }
+.settings-data { margin-top: 18px; }
+.settings-data button { width: 100%; margin-top: 10px; }
+.compact-details { margin-top: 14px; }
+summary { cursor: pointer; font-weight: 700; padding: 8px 0; min-height: 44px; }
+summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
+.log-methods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.log-methods button { min-width: 0; }
+[hidden] { display: none !important; }

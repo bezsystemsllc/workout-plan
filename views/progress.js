@@ -1,3 +1,6 @@
+import { progressPhotosHtml, wireProgressPhotos } from "./progress-photos.js";
+import { latestCoachReview } from "../lib/coach.js";
+import { renderCoachReviewSummary } from "./today.js";
 import { load, update, exportJSON, importJSON, todayISO } from "../storage.js";
 import { lbToKg, kgToLb, inToCm, cmToIn } from "../lib/calc.js";
 import { notify, confirmAction, toast } from "../lib/modal.js";
@@ -10,7 +13,7 @@ import { summarizePlanProgress } from "../lib/plan-progress.js";
 const HISTORY_ROW_LIMIT = 120;
 const CHART_POINT_LIMIT = 180;
 
-export function renderProgress(root) {
+export function renderProgress(root, { section = "" } = {}) {
   const settings = load("settings");
   const metric = settings.units === "metric";
   const wUnit = metric ? "kg" : "lb";
@@ -60,15 +63,17 @@ export function renderProgress(root) {
 
       ${activeTab === "body" ? renderBodySection(entries, stats, visibleHistory, hiddenHistoryCount, planProgress) : renderStrengthSection(allWorkouts, allPRs, exerciseList)}
 
-      <section class="card">
-        <h2>Backup & Data</h2>
+      ${activeTab === "body" ? progressPhotosHtml() : ""}
+      ${latestCoachReview() ? `<details class="card"><summary>Latest coach review</summary>${renderCoachReviewSummary(latestCoachReview())}</details>` : ""}
+      <details class="card" id="progress-backup" ${section === "backup" ? "open" : ""}>
+        <summary>Backup & data</summary>
         <p class="hint">localStorage is per-browser. Export regularly so you don't lose your data if cookies clear.</p>
         <div class="grid-2">
           <button id="p-export">Export JSON</button>
           <button id="p-import">Import JSON</button>
         </div>
         <input type="file" id="p-file" accept="application/json" hidden />
-      </section>
+      </details>
     `;
 
     // Tab switching
@@ -87,7 +92,9 @@ export function renderProgress(root) {
       wireStrengthEvents(render, allWorkouts);
     }
 
+    wireProgressPhotos(root);
     wireBackupEvents(render);
+    if (section === "backup") requestAnimationFrame(() => root.querySelector("#progress-backup")?.scrollIntoView({ block: "start" }));
   }
 
   function renderBodySection(entries, stats, visibleHistory, hiddenHistoryCount, planProgress) {

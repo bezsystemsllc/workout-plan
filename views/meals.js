@@ -1,3 +1,4 @@
+import { navigate } from "../app.js";
 import { getMeals } from "../lib/meals.js";
 import { getActivePlan } from "../lib/plan.js";
 import { load, loadApiKey, update, todayISO } from "../storage.js";
@@ -11,6 +12,8 @@ import { aiProgressHtml, setAiProgress } from "../lib/ai-progress.js";
 export function renderMeals(root) {
   const today = todayISO();
   let viewedDate = today;
+  let logOpen = false;
+  let logMode = "";
   const settings = load("settings");
   const targets = settings.targets;
   const profile = settings.profile;
@@ -30,15 +33,20 @@ export function renderMeals(root) {
   }
 
   function foodLookupHtml() {
-    if (!loadApiKey()) return "";
+    const key = loadApiKey();
     return `
-      <label style="margin-top:10px" for="food-q">Describe what you ate</label>
-      <input id="food-q" type="text" maxlength="200" placeholder="2 eggs and a slice of toast" />
-      <div class="grid-2" style="margin-top:8px">
-        <button type="button" id="food-search">Estimate with AI</button>
-        <button type="button" id="photo-log">Log from a photo</button>
+      <div data-log-panel="describe" hidden>
+        ${key ? `<label for="food-q">Describe what you ate</label>
+          <input id="food-q" type="text" maxlength="200" placeholder="2 eggs and a slice of toast" />
+          <button type="button" class="primary today-action" id="food-search">Estimate with AI</button>`
+          : `<p class="hint">Use your own OpenAI key for AI food logging.</p><button type="button" data-log-key>Set up AI key</button>`}
       </div>
-      <input type="file" id="photo-input" accept="image/*" capture="environment" hidden />
+      <div data-log-panel="photo" hidden>
+        ${key ? `<p class="hint">Take a photo or choose one from your library. You can review the estimate before logging it.</p>
+          <button type="button" class="primary today-action" id="photo-log">Choose or take a photo</button>
+          <input type="file" id="photo-input" accept="image/*" capture="environment" hidden />`
+          : `<p class="hint">Use your own OpenAI key for photo logging.</p><button type="button" data-log-key>Set up AI key</button>`}
+      </div>
       ${aiProgressHtml("meal-ai-progress")}
     `;
   }
@@ -157,12 +165,13 @@ export function renderMeals(root) {
             `;
           }).join("")}
         </ul>
+        <button type="button" class="today-action" id="edit-meal-plan">Update meal plan</button>
       </section>
 
       <section class="card">
-        <h2>Off-plan items</h2>
+        <h2>Food log</h2>
         ${state.custom.length === 0
-          ? `<p class="empty small">Nothing logged off-plan today.</p>`
+          ? `<p class="empty small">No extra food logged for this day.</p>`
           : `
             <table class="entry-table">
               <thead><tr><th>Item</th><th class="num">kcal</th><th class="num">Protein</th><th class="num">Fat</th><th class="num">Carbs</th><th></th></tr></thead>
@@ -180,7 +189,13 @@ export function renderMeals(root) {
               </tbody>
             </table>
           `}
+        <button type="button" class="primary today-action" id="log-food" aria-expanded="false" aria-controls="food-log-options">Log food</button>
+        <div id="food-log-options" hidden>
+          <div class="log-methods" role="group" aria-label="How to log food">
+            ${[["describe", "Describe it"], ["photo", "Take a photo"], ["saved", "Saved foods"], ["manual", "Enter manually"]].map(([id, label]) => `<button type="button" data-log-mode="${id}" aria-pressed="false">${label}</button>`).join("")}
+          </div>
         ${foodLookupHtml()}
+        <div data-log-panel="saved" hidden>
         ${savedFoods.length ? `
           <label style="margin-top:10px">Quick-add from My Foods</label>
           <div class="row" style="gap:8px">
@@ -190,7 +205,9 @@ export function renderMeals(root) {
             </select>
             <button class="ghost" id="cf-saved-rm" title="Forget selected food" aria-label="Forget selected food" style="min-width:44px">🗑</button>
           </div>
-        ` : ""}
+        ` : `<p class="hint">No saved foods yet. Enter a food manually and save it for next time.</p>`}
+        </div>
+        <div data-log-panel="manual saved" hidden>
         <div class="grid-2" style="margin-top:10px">
           <div><label>Name</label><input id="cf-name" type="text" placeholder="Pizza slice" /></div>
           <div><label>kcal</label><input id="cf-kcal" type="number" inputmode="numeric" min="0" /></div>
@@ -200,9 +217,38 @@ export function renderMeals(root) {
           <div><label>Qty</label><input id="cf-qty" type="number" inputmode="decimal" step="0.25" min="0.25" value="1" /></div>
         </div>
         <label class="cf-save-row"><input type="checkbox" id="cf-save" checked /> Save to My Foods for next time</label>
-        <button class="primary" id="cf-add" style="width:100%;margin-top:10px">Add item</button>
+        <button class="primary" id="cf-add" style="width:100%;margin-top:10px">Log food item</button>
+        </div>
+        </div>
       </section>
     `;
+
+    function showLogControls() {
+      root.querySelector("#food-log-options").hidden = !logOpen;
+      const toggle = root.querySelector("#log-food");
+      toggle.setAttribute("aria-expanded", String(logOpen));
+      toggle.textContent = logOpen ? "Close food entry" : "Log food";
+      for (const panel of root.querySelectorAll("[data-log-panel]")) {
+        panel.hidden = !panel.dataset.logPanel.split(" ").includes(logMode);
+      }
+      for (const button of root.querySelectorAll("[data-log-mode]")) {
+        const selected = button.dataset.logMode === logMode;
+        button.setAttribute("aria-pressed", String(selected));
+        button.classList.toggle("primary", selected);
+      }
+    }
+    root.querySelector("#log-food").addEventListener("click", () => {
+      logOpen = !logOpen;
+      showLogControls();
+      if (logOpen) root.querySelector("[data-log-mode]").focus();
+    });
+    for (const button of root.querySelectorAll("[data-log-mode]")) button.addEventListener("click", () => {
+      logMode = button.dataset.logMode;
+      showLogControls();
+    });
+    for (const button of root.querySelectorAll("[data-log-key]")) button.addEventListener("click", () => navigate("settings", { section: "ai" }));
+    showLogControls();
+    root.querySelector("#edit-meal-plan")?.addEventListener("click", () => navigate("settings", { section: "meals" }));
 
     wireDateNav(root, viewedDate, (next) => {
       viewedDate = next;
@@ -329,6 +375,7 @@ export function renderMeals(root) {
         }
       }
 
+      if (!btn.isConnected) return;
       if (!result.items.length) {
         setAiProgress(progress, "Finished — nothing found", "done");
         await notify(result.note || emptyMessage, { title: "Nothing to add" });
@@ -337,7 +384,7 @@ export function renderMeals(root) {
 
       setAiProgress(progress, "Ready to review", "done");
       const chosen = await confirmForm(mealItemsReviewHtml(result, lead), {
-        title: "Add to today",
+        title: `Add to ${viewedDate === today ? "today" : viewedDate}`,
         okLabel: "Add selected",
         collect: (wrap) => ({
           save: wrap.querySelector("#ai-save-foods")?.checked === true,

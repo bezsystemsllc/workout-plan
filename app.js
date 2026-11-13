@@ -22,8 +22,9 @@ const ROUTES = {
   settings: { title: "Settings", render: renderSettings },
 };
 
-export function navigate(name) {
-  if (location.pathname !== `/${name}`) history.pushState({}, "", `/${name}`);
+export function navigate(name, { section = "", routine = "" } = {}) {
+  const url = `/${name}${section ? `?section=${encodeURIComponent(section)}` : ""}`;
+  if (location.pathname + location.search !== url || routine) history.pushState({ routine }, "", url);
   route();
 }
 
@@ -51,7 +52,10 @@ function route() {
   const renderContent = () => {
     APP.innerHTML = "";
     try {
-      def.render(APP, { onboarding: needsOnboarding, requestedTab });
+      def.render(APP, { onboarding: needsOnboarding, requestedTab,
+        section: new URLSearchParams(location.search).get("section") || "",
+        suggestedRoutine: history.state?.routine || "",
+      });
     } catch (e) {
       console.error("View failed to render:", e);
       APP.innerHTML = `<section class="card"><h2>Something went wrong</h2><p class="hint">The app hit an error rendering this page — your data is safe.</p><button class="primary" id="err-reload" style="width:100%;margin-top:10px">Reload app</button></section>`;

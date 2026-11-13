@@ -16,7 +16,6 @@ import { DEFAULT_OPENAI_MODEL } from "../lib/openai.js";
 import { matchWorkoutRoutine } from "../lib/workout-ai.js";
 import { isUsdaMatch, searchUsdaFoods } from "../lib/usda-foods.js";
 import { suggestFoodPreferences } from "../lib/food-preferences-ai.js";
-import { compareProgressPhotos } from "../lib/progress-photo-ai.js";
 import { THEMES, currentTheme, applyTheme } from "../lib/theme.js";
 import { navigate } from "../app.js";
 
@@ -33,7 +32,7 @@ const ONBOARDING_DEFAULT = {
   sleepTime: "22:30",
 };
 
-export function renderSettings(root, { onboarding = false, requestedTab = "today" } = {}) {
+export function renderSettings(root, { onboarding = false, requestedTab = "today", section = "", suggestedRoutine = "" } = {}) {
   const settings = load("settings");
   const isOnboarding = onboarding || !settings.profile;
   const profile = settings.profile || { ...ONBOARDING_DEFAULT };
@@ -51,13 +50,18 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
   let draftFood = { ...DEFAULT_FOOD_PREFS, ...(settings.foodPrefs || {}) };
   let step = 0; // current wizard step (persists across rerenders)
   let furthestStep = 0;
-  let workoutSetup = null;
+  let activeSection = ["workout", "meals", "profile", "appearance", "ai"].includes(section) ? section : "";
+  let workoutSetup = suggestedRoutine ? "ai" : null;
   let foodSetup = null;
-  let routine = "";
+  let routine = suggestedRoutine;
   let routineMatch = null;
   let foodDescription = "";
   let foodDraftApplied = false;
   const planSeed = settings.plan?.meta?.seed ?? Math.floor(Math.random() * 1000000);
+
+  function draftTargets() {
+    return isOnboarding || activeSection === "profile" ? computeTargets(draft) : settings.targets;
+  }
 
   function buildDraftPlan(splits) {
     return generatePlan({ ...draftPrefs, splits }, draft, {
@@ -131,12 +135,11 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         <label for="workout-routine">Describe your workout and equipment</label>
         <p class="hint" id="workout-routine-hint">Tell Tempo what you want to train, how many days a week, and what equipment you want to use. Try “Three full-body days with push-ups and rows. I only have dumbbells and a bench.”</p>
         <textarea id="workout-routine" rows="3" maxlength="800" aria-describedby="workout-routine-hint">${esc(routine)}</textarea>
-        <button id="match-workout" type="button" class="primary">Suggest workout template</button>
+        <button id="match-workout" type="button" class="primary">Build workout preview</button>
         <p class="hint" id="workout-match-status" role="status">${routineMatch ? "Workout preview ready." : "Uses your saved OpenAI key."}</p>
         ${routineMatch ? `
-          <div id="workout-preview">${workoutPreview()}</div>
+          ${isOnboarding ? `<div id="workout-preview">${workoutPreview()}</div>` : ""}
           <div class="training-buttons">
-            ${!isOnboarding ? `<button id="use-workout-plan" type="button" class="primary">Save workout plan</button>` : ""}
             <button id="edit-workout-plan" type="button">Edit plan settings</button>
           </div>` : ""}
         ` : setupKeyForm("workout")) : ""}
@@ -266,8 +269,8 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         ${foodSetup === "ai" ? (loadApiKey() ? `
         <label for="food-description">Describe how you like to eat</label>
         <textarea id="food-description" rows="3" maxlength="800" placeholder="I like salmon, canned tuna, eggs, and rice. I avoid dairy.">${esc(foodDescription)}</textarea>
-        <button id="suggest-food" class="primary" type="button">Suggest weekly meal plan</button>
-        <p id="food-match-status" class="hint" role="status">${foodDraftApplied ? "Preferences applied to your draft. Save from Review." : "Uses your own OpenAI key."}</p>
+        <button id="suggest-food" class="primary" type="button">Build meal preview</button>
+        <p id="food-match-status" class="hint" role="status">${foodDraftApplied ? "Draft ready. Continue to Review to save your plans." : "Uses your own OpenAI key."}</p>
         ` : setupKeyForm("food")) : ""}
         ${foodSetup === "presets" ? `
         <p class="hint">Choose your diet, favorite food groups, and foods to avoid.</p>
@@ -322,8 +325,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       </ul>`}`;
   }
 
-  // Each step is one card; they're all rendered into a horizontal track and
-  // shown one at a time, so existing input wiring keeps working unchanged.
+  // Keep onboarding controls mounted while showing only the current step.
   function buildSteps() {
     const targets = computeTargets(draft);
     const ftin = cmToFtIn(draft.heightCm);
@@ -420,55 +422,55 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     const steps = buildSteps();
     step = Math.min(step, steps.length - 1);
 
-    root.innerHTML = `
+    const sections = [
+      ["workout", "Workout plan", "Choose a template or describe your routine and equipment."],
+      ["meals", "Meal plan", "Set food preferences or build a weekly plan with AI."],
+      ["profile", "Profile & goals", "Update your measurements, targets, and daily schedule."],
+      ["appearance", "Appearance", "Choose your Tempo theme."],
+      ["ai", "AI key", "Manage your own OpenAI key."],
+    ];
+    const visibleSteps = { workout: [4, 5], meals: [3], profile: [0, 1, 2] }[activeSection] || [];
+    root.innerHTML = isOnboarding ? `
       <div class="wiz-head"></div>
       <div class="wizard"><div class="wizard-track">${steps.map(s => `<div class="wizard-step">${s.html}</div>`).join("")}</div></div>
-      <div class="wiz-nav"></div>
-      ${!isOnboarding ? themePickerCard() : ""}
-      ${!isOnboarding ? coachKeyCard() : ""}
-      ${!isOnboarding ? `
-        <section class="card">
-          <h2>Progress photos</h2>
-          <p class="hint">Choose an earlier and a recent photo in similar lighting, clothing, and poses. Tempo sends both photos directly to OpenAI using your saved key when you compare them. Tempo does not save the photos.</p>
-          <form id="progress-photo-form">
-            <fieldset class="progress-photo-fields">
-              <label>Earlier photo <input type="file" name="earlier" accept="image/*" required></label>
-              <label>Recent photo <input type="file" name="recent" accept="image/*" required></label>
-              <label>Training notes (optional)
-                <textarea name="notes" rows="2" maxlength="800" placeholder="Time between photos, workouts per week, or lifts that have stalled"></textarea>
-              </label>
-              <button type="submit" class="primary">Compare photos with AI</button>
-            </fieldset>
-          </form>
-          <p id="progress-photo-status" class="hint" role="status"></p>
-          <a id="photo-key-link" href="#ai-coach-key" hidden>Go to AI coach key</a>
-          <div id="progress-photo-result" hidden>
-            <h3>Visible changes</h3>
-            <p data-photo-comparison></p>
-            <h3>Next step</h3>
-            <p data-photo-advice></p>
-            <button type="button" data-photo-routine hidden>Use suggestion in Training</button>
-          </div>
-        </section>` : ""}
-      ${!isOnboarding ? `<button class="ghost danger" id="f-reset" style="width:100%;margin-top:10px">Reset all data</button>` : ""}
+      <div class="wiz-nav"></div>` : `
+      ${activeSection ? `<button type="button" class="ghost" id="settings-back">← Settings</button>
+        <p class="hint">${visibleSteps.length ? "Changes stay in a draft until you preview and save." : ""}</p>` : `
+        <p class="hint">Manage your plans and preferences.</p>
+        <div class="settings-menu">
+          ${sections.map(([id, title, detail]) => `<button type="button" data-settings-section="${id}"><b>${title}</b><span>${detail}</span></button>`).join("")}
+        </div>`}
+      ${steps.map((s, i) => `<div ${visibleSteps.includes(i) ? "" : "hidden"}>${s.html}</div>`).join("")}
+      ${visibleSteps.length && !(activeSection === "meals" && foodSetup === "ai") ? `<button type="button" class="primary today-action" id="preview-settings" ${activeSection === "workout" && workoutSetup === "ai" && !routineMatch ? "disabled" : ""}>${activeSection === "workout" ? "Preview workout plan" : activeSection === "meals" ? "Preview meal plan" : "Preview changes"}</button>` : ""}
+      ${activeSection === "appearance" ? themePickerCard() : ""}
+      ${activeSection === "ai" ? coachKeyCard() : ""}
+      ${!activeSection ? `<details class="card settings-data"><summary>Data & backup</summary>
+        <p class="hint">Your plans and logs are saved in this browser.</p>
+        <button type="button" id="settings-backup">Open backup tools</button>
+        <button class="ghost danger" id="f-reset">Reset all data</button>
+      </details>` : ""}
     `;
+    for (const button of root.querySelectorAll("[data-settings-section]")) {
+      button.addEventListener("click", () => openSection(button.dataset.settingsSection));
+    }
+    root.querySelector("#settings-back")?.addEventListener("click", async () => {
+      if (hasDraftChanges() && !await confirmAction("Your unsaved edits will be discarded.", { title: "Leave this section?", okLabel: "Discard edits", cancelLabel: "Keep editing" })) return;
+      navigate("settings");
+    });
+    root.querySelector("#settings-backup")?.addEventListener("click", () => navigate("progress", { section: "backup" }));
+    root.querySelector("#preview-settings")?.addEventListener("click", previewSettings);
 
-    const wizard = root.querySelector(".wizard");
     const track = root.querySelector(".wizard-track");
     const head = root.querySelector(".wiz-head");
     const nav = root.querySelector(".wiz-nav");
 
-    function applyTrack(animate) {
-      track.style.transition = animate ? "transform .3s ease" : "none";
-      wizard.style.transition = animate ? "height .3s ease" : "none";
-      track.style.transform = `translateX(-${step * 100}%)`;
-      const el = track.children[step];
-      if (el) wizard.style.height = el.offsetHeight + "px";
+    function syncStep() {
+      if (!isOnboarding) return;
+      [...track.children].forEach((child, i) => { child.hidden = i !== step; });
     }
 
-    root.querySelector("#setup-plan-preview")?.addEventListener("toggle", () => applyTrack(false), true);
-
     function paintChrome() {
+      if (!isOnboarding) return;
       head.innerHTML = `
         <span class="wiz-step-label">Step ${step + 1} of ${steps.length} · ${steps[step].title}</span>
         <div class="wiz-dots">
@@ -493,7 +495,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         setupPreview.innerHTML = setupPlanPreview(computeTargets(draft));
       }
       paintChrome();
-      applyTrack(true);
+      syncStep();
       if (scrollTarget) scrollTarget.scrollIntoView({ block: "start" });
       else window.scrollTo({ top: 0, behavior: "smooth" });
     }
@@ -588,46 +590,24 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
           !food.allergens.some(allergen => foodPrefs.avoid.includes(allergen))).slice(0, 4);
         foodPrefs.usdaFoods = (draftFood.usdaFoods || []).filter(item => foodPrefs.preferredFoods.includes(item.foodId));
         let usdaNote = "";
+        let rows = [];
         if (candidates.length) {
           foodStatus.textContent = "Looking up ingredients in USDA FoodData Central…";
           const results = await Promise.allSettled(candidates.map(food => searchUsdaFoods(food.name)));
           if (!foodButton.isConnected) return;
-          const rows = candidates.map((food, i) => {
+          rows = candidates.map((food, i) => {
             const items = results[i].value?.items.filter(item => isUsdaMatch(item, food)) || [];
             const saved = foodPrefs.usdaFoods.find(item => item.foodId === food.id);
             if (saved && !items.some(item => item.fdcId === saved.fdcId)) items.unshift(saved);
             return { food, items, saved };
           }).filter(row => row.items.length);
-          if (rows.length) {
-            const selections = await confirmForm(`
-              <p class="hint">Choose a USDA entry only if it matches the ingredient and how you prepare it. Tempo can use its estimates for the rest.</p>
-              ${rows.map(({ food, items, saved }, i) => `
-                <p><label>${esc(food.name)}<br>
-                  <select data-usda-row="${i}">
-                    <option value="">Use Tempo estimates</option>
-                    ${items.map(item => `<option value="${item.fdcId}" ${saved?.fdcId === item.fdcId ? "selected" : ""}>${esc(item.name)}</option>`).join("")}
-                  </select>
-                </label></p>`).join("")}`,
-            { title: "Match ingredients to USDA", okLabel: "Preview meal plan", collect: wrap =>
-              [...wrap.querySelectorAll("[data-usda-row]")].flatMap((select, i) => {
-                const { food, items } = rows[i];
-                const item = items.find(entry => entry.fdcId === Number(select.value));
-                return item ? [{ ...item, foodId: food.id }] : [];
-              }) });
-            if (!foodButton.isConnected) return;
-            if (!selections) {
-              foodStatus.textContent = "You can edit your description and try again.";
-              return;
-            }
-            foodPrefs.usdaFoods = foodPrefs.usdaFoods.filter(item => !rows.some(row => row.food.id === item.foodId)).concat(selections);
-          }
           const limitError = results.find(result => result.status === "rejected" && result.reason?.status === 429);
           if (limitError) usdaNote = `${limitError.reason.message} You can still use this plan with Tempo’s estimates for ingredients without a USDA match.`;
           else if (results.some(result => result.status === "rejected")) usdaNote = "Some USDA lookups were unavailable. Tempo estimates are used where no USDA entry was selected.";
           else if (!rows.length) usdaNote = "No usable USDA entries were found. This plan uses Tempo estimates.";
         }
         foodPrefs.weekly = true;
-        const week = getMealWeek({ targets: computeTargets(draft), foodPrefs });
+        const week = getMealWeek({ targets: draftTargets(), foodPrefs });
         if (week.some(meals => meals.some(meal => !meal.items))) {
           throw new Error("Tempo couldn’t fill every meal with foods that match these restrictions.");
         }
@@ -635,17 +615,35 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         const accepted = await confirmForm(`
           <p><b>${esc(DIETS[foodPrefs.diet])}</b> · Avoid: ${esc(excluded || "None selected")}</p>
           ${unmatchedFoods.length ? `<p class="hint">Unavailable in the meal planner: ${esc(unmatchedFoods.join(", "))}.</p>` : ""}
-          <p class="hint">This plan repeats each week. Tempo calculates portions from your nutrition targets and uses USDA nutrition values where you confirmed a match.</p>
-          ${mealDaysPreview(week)}
-          ${foodPrefs.usdaFoods.length ? `<p class="hint">USDA FoodData Central entries: ${foodPrefs.usdaFoods.map(item => esc(item.name)).join("; ")}.</p>` : ""}
+          <p class="hint">This plan repeats each week. Tempo calculates portions from your nutrition targets. Review the ingredients and exclusions before saving.</p>
+          ${rows.length ? `<details class="compact-details"><summary>Ingredient nutrition sources</summary>
+            <p class="hint">USDA entries are optional. Choose a match only if the ingredient and preparation agree. Portions below update when you change a source.</p>
+            ${rows.map(({ food, items, saved }, i) => `<label>${esc(food.name)}
+              <select data-usda-row="${i}"><option value="">Use Tempo estimates</option>
+                ${items.map(item => `<option value="${item.fdcId}" ${saved?.fdcId === item.fdcId ? "selected" : ""}>${esc(item.name)}</option>`).join("")}
+              </select></label>`).join("")}
+          </details>` : ""}
           ${usdaNote ? `<p class="hint">${esc(usdaNote)}</p>` : ""}
-          <p class="hint">Review the ingredients and exclusions before using this plan.</p>`,
-        { title: "Suggested weekly meal plan", okLabel: "Use this plan" });
+          <div data-meal-preview>${mealDaysPreview(week)}</div>`, {
+          title: "Meal plan preview", okLabel: isOnboarding ? "Use in setup" : "Save meal plan",
+          onMount: wrap => {
+            for (const select of wrap.querySelectorAll("[data-usda-row]")) select.addEventListener("change", () => {
+              const selections = [...wrap.querySelectorAll("[data-usda-row]")].flatMap(select => {
+                const { food, items } = rows[Number(select.dataset.usdaRow)];
+                const item = items.find(entry => entry.fdcId === Number(select.value));
+                return item ? [{ ...item, foodId: food.id }] : [];
+              });
+              foodPrefs.usdaFoods = foodPrefs.usdaFoods.filter(item => !rows.some(row => row.food.id === item.foodId)).concat(selections);
+              wrap.querySelector("[data-meal-preview]").innerHTML = mealDaysPreview(getMealWeek({ targets: draftTargets(), foodPrefs }));
+            });
+          },
+        });
         if (!foodButton.isConnected) return;
         if (accepted) {
           draftFood = foodPrefs;
           foodDraftApplied = true;
-          rerender();
+          if (isOnboarding) rerender();
+          else doSave();
         } else {
           foodStatus.textContent = "You can edit your description and try again.";
         }
@@ -656,7 +654,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         foodButton.removeAttribute("aria-busy");
         foodButton.textContent = idleLabel;
         foodInput.readOnly = false;
-        if (foodButton.isConnected) applyTrack(false);
+        if (foodButton.isConnected) syncStep();
       }
     });
 
@@ -691,7 +689,6 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     const routineInput = root.querySelector("#workout-routine");
     const matchButton = root.querySelector("#match-workout");
     const matchStatus = root.querySelector("#workout-match-status");
-    root.querySelector("#use-workout-plan")?.addEventListener("click", () => doSave("workout"));
     root.querySelector("#edit-workout-plan")?.addEventListener("click", () => {
       workoutSetup = "presets";
       rerender();
@@ -717,7 +714,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       matchButton.textContent = "Finding a template…";
       routineInput.readOnly = true;
       matchStatus.textContent = "Finding a workout template…";
-      applyTrack(false);
+      syncStep();
       try {
         const match = await matchWorkoutRoutine(apiKey, description, draftPrefs);
         if (!matchButton.isConnected) return;
@@ -740,6 +737,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
           ]));
         }
         rerender();
+        if (!isOnboarding) await previewSettings();
       } catch (error) {
         if (matchButton.isConnected) matchStatus.textContent = error.message || "Tempo couldn’t match that routine. Try again.";
       } finally {
@@ -747,7 +745,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         matchButton.removeAttribute("aria-busy");
         matchButton.textContent = idleLabel;
         routineInput.readOnly = false;
-        if (matchButton.isConnected) applyTrack(false);
+        if (matchButton.isConnected) syncStep();
       }
     });
     for (const sel of root.querySelectorAll("select[data-day]")) sel.addEventListener("change", (e) => {
@@ -798,60 +796,6 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       toast("Coach key removed");
       rerender();
     });
-    root.querySelector("#progress-photo-form")?.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const form = event.currentTarget;
-      const status = root.querySelector("#progress-photo-status");
-      const result = root.querySelector("#progress-photo-result");
-      const photoKeyLink = root.querySelector("#photo-key-link");
-      result.hidden = true;
-      photoKeyLink.hidden = true;
-      const apiKey = loadApiKey();
-      if (!apiKey) {
-        status.textContent = "Save an OpenAI key in Settings to compare your photos.";
-        photoKeyLink.hidden = false;
-        return;
-      }
-      const files = new FormData(form);
-      const fields = form.querySelector("fieldset");
-      const compareButton = form.querySelector('button[type="submit"]');
-      const idleLabel = compareButton.textContent;
-      fields.disabled = true;
-      compareButton.setAttribute("aria-busy", "true");
-      compareButton.textContent = "Comparing photos…";
-      status.textContent = "Comparing your photos…";
-      try {
-        const review = await compareProgressPhotos(apiKey, files.get("earlier"), files.get("recent"), {
-          goal: draft.goal,
-          split: STYLE_OPTIONS[draftPrefs.style].label,
-          daysPerWeek: draftPrefs.daysPerWeek,
-          equipment: draftPrefs.equipment.map(id => EQUIPMENT[id]).filter(Boolean),
-          notes: String(files.get("notes") || "").trim().slice(0, 800),
-        });
-        if (!form.isConnected) return;
-        result.querySelector("[data-photo-comparison]").textContent = review.comparison;
-        result.querySelector("[data-photo-advice]").textContent = review.advice;
-        const useRoutine = result.querySelector("[data-photo-routine]");
-        useRoutine.hidden = !review.routine;
-        useRoutine.onclick = () => {
-          workoutSetup = "ai";
-          routine = review.routine;
-          routineMatch = null;
-          step = steps.findIndex(item => item.title === "Training");
-          rerender();
-          window.scrollTo({ top: 0 });
-        };
-        result.hidden = false;
-        status.textContent = "Photo comparison ready.";
-        form.reset();
-      } catch (error) {
-        status.textContent = error.message || "The photo comparison failed. Try again.";
-      } finally {
-        compareButton.textContent = idleLabel;
-        compareButton.removeAttribute("aria-busy");
-        fields.disabled = false;
-      }
-    });
     for (const card of root.querySelectorAll("[data-set-theme]")) {
       card.addEventListener("click", () => {
         const themeId = card.dataset.setTheme;
@@ -865,31 +809,52 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     root.querySelector("#f-reset")?.addEventListener("click", doReset);
 
     paintChrome();
-    applyTrack(false);
+    syncStep();
   }
 
-  async function doSave(destination) {
+  const initialDraft = JSON.stringify([draft, draftUnits, draftPrefs, draftSplits, draftFood]);
+  function hasDraftChanges() {
+    return JSON.stringify([draft, draftUnits, draftPrefs, draftSplits, draftFood]) !== initialDraft;
+  }
+
+  function openSection(next) {
+    activeSection = next;
+    history.replaceState({}, "", `/settings?section=${next}`);
+    rerender();
+    window.scrollTo(0, 0);
+  }
+
+  async function previewSettings() {
     const err = validate(draft);
-    if (err) { step = 0; rerender(); await notify(err, { title: "Check your inputs" }); return; }
-    saveDraft(draftSplits);
-    toast(destination === "workout" ? "Workout plan saved." : isOnboarding ? "All set — let's go." : "Profile updated.");
-    navigate(destination === "workout" || (isOnboarding && requestedTab === "workout") ? "workout" : "today");
+    if (err) { await notify(err, { title: "Check your inputs" }); return; }
+    const targets = computeTargets(draft);
+    const mealTargets = draftTargets();
+    const html = activeSection === "workout" ? workoutPreview()
+      : activeSection === "meals" ? mealDaysPreview(getMealWeek({ targets: mealTargets, foodPrefs: draftFood }))
+      : `<p>Daily targets: <b>${targets.kcal} kcal</b> · ${targets.p} g protein · ${targets.c} g carbs · ${targets.f} g fat.</p>${workoutPreview()}<p class="hint">Your meal portions update to match these targets.</p>`;
+    const accepted = await confirmForm(html, {
+      title: activeSection === "workout" ? "Workout plan preview" : activeSection === "meals" ? "Meal plan preview" : "Review your changes",
+      okLabel: activeSection === "workout" ? "Save workout plan" : activeSection === "meals" ? "Save meal plan" : "Save changes",
+    });
+    if (accepted) doSave();
   }
 
-  function saveDraft(splits) {
+  async function doSave() {
+    const err = validate(draft);
+    if (err) { step = 0; if (!isOnboarding) activeSection = "profile"; rerender(); await notify(err, { title: "Check your inputs" }); return; }
     const targets = computeTargets(draft);
-    const targetWeightLb = projectTargetWeightLb(draft);
-    const plan = buildDraftPlan(splits);
     update("settings", (s) => ({
       ...s,
-      profile: { ...draft },
-      units: draftUnits,
-      targets,
-      targetWeightLb,
-      trainingPrefs: draftPrefs,
-      foodPrefs: { ...draftFood },
-      plan,
+      ...((isOnboarding || activeSection === "profile") ? {
+        profile: { ...draft }, units: draftUnits, targets, targetWeightLb: projectTargetWeightLb(draft),
+      } : {}),
+      ...((isOnboarding || activeSection === "workout" || activeSection === "profile") ? {
+        trainingPrefs: draftPrefs, plan: buildDraftPlan(draftSplits),
+      } : {}),
+      ...((isOnboarding || activeSection === "meals") ? { foodPrefs: { ...draftFood } } : {}),
     }));
+    toast(isOnboarding ? "All set — let's go." : activeSection === "workout" ? "Workout plan saved." : activeSection === "meals" ? "Meal plan saved." : "Profile updated.");
+    navigate(isOnboarding ? requestedTab === "settings" ? "today" : requestedTab : activeSection === "workout" ? "workout" : activeSection === "meals" ? "meals" : "settings");
   }
 
   async function doReset() {

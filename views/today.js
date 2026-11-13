@@ -62,12 +62,14 @@ export function renderToday(root) {
         <div class="spread small"><span>Calories</span><span><b>${consumed.kcal}</b> / ${targets.kcal}</span></div>
         <div class="bar ${barClass(consumed.kcal, targets.kcal)}" style="margin-top:4px"><span style="width:${pct(consumed.kcal, targets.kcal)}%"></span></div>
       </div>
+      <details class="compact-details"><summary>Nutrition details</summary>
       <div class="macros-grid">
         <div class="m"><b>${consumed.p}g</b><span>Protein / ${targets.p}g</span></div>
         <div class="m"><b>${consumed.f}g</b><span>Fat / ${targets.f}g</span></div>
         <div class="m"><b>${consumed.c}g</b><span>Carbs / ${targets.c}g</span></div>
         <div class="m"><b>${targets.kcal - consumed.kcal}</b><span>kcal left</span></div>
       </div>
+      </details>
       ${nextMeal ? `
         <div class="next-meal">
           <span class="muted small">Next up</span>
@@ -75,7 +77,7 @@ export function renderToday(root) {
           <div class="hint">${esc(nextMeal.m.items)}</div>
         </div>
       ` : ""}
-      <button class="today-action" id="go-meals">Open meal plan</button>
+      <button class="primary today-action" id="go-meals">Open meal plan</button>
     </section>
 
     <section class="card today-hydration">
@@ -121,13 +123,13 @@ export function renderToday(root) {
         ? `<button class="primary today-action" id="coach-review">Analyze progress</button>`
         : `<button class="primary today-action" id="coach-review" data-needs-key>Set up AI coach key</button>`}
       ${aiProgressHtml("coach-ai-progress")}
-      ${coachReview ? renderCoachReviewSummary(coachReview) : ""}
+      ${coachReview ? `<details class="compact-details"><summary>Latest coach review</summary>${renderCoachReviewSummary(coachReview)}</details>` : ""}
     </section>
   `;
 
   root.querySelector("#go-meals")?.addEventListener("click", () => navigate("meals"));
   root.querySelector("#go-workout")?.addEventListener("click", () => navigate("workout"));
-  root.querySelector("#update-workout")?.addEventListener("click", () => navigate("settings"));
+  root.querySelector("#update-workout")?.addEventListener("click", () => navigate("settings", { section: "workout" }));
 
   for (const b of root.querySelectorAll("button[data-add-water]")) {
     b.addEventListener("click", () => {
@@ -146,8 +148,7 @@ export function renderToday(root) {
   root.querySelector("#coach-review")?.addEventListener("click", async (event) => {
     const btn = event.currentTarget;
     if (btn.hasAttribute("data-needs-key")) {
-      navigate("settings");
-      root.querySelector("#ai-coach-key")?.scrollIntoView({ block: "start" });
+      navigate("settings", { section: "ai" });
       return;
     }
     const previousLabel = btn.textContent;
@@ -279,7 +280,7 @@ function actionLabel(action) {
   }[action] || "hold";
 }
 
-function renderCoachReviewSummary(review) {
+export function renderCoachReviewSummary(review) {
   const notes = review.stale ? [] : review.workoutNotes.slice(0, 2);
   const age = review.stale ? " · outdated" : "";
   return `
