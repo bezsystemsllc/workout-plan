@@ -4,7 +4,7 @@ import {
   bmr, tdee, kgToLb, lbToKg, cmToFtIn, ftInToCm,
 } from "../lib/calc.js";
 import {
-  generatePlan, buildSplits, DEFAULT_PREFS, STYLE_OPTIONS, EXPERIENCE,
+  generatePlan, buildSplits, DEFAULT_PREFS, STYLE_OPTIONS, TRAINING_TYPES, EXPERIENCE,
   dayLabelFor, dayFromToken, tokenFromDay, VARIANT_SUFFIX,
 } from "../lib/plan.js";
 import { EQUIPMENT, EQUIPMENT_PRESETS } from "../data/exercises.js";
@@ -66,16 +66,18 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
   function buildDraftPlan(splits) {
     return generatePlan({ ...draftPrefs, splits }, draft, {
       seed: planSeed,
-      preserve: equipmentChanged() || routineMatch ? null : settings.plan,
+      preserve: equipmentChanged() || draftPrefs.trainingType !== savedPrefs.trainingType || draftPrefs.style !== savedPrefs.style || routineMatch ? null : settings.plan,
       exerciseIds: routineMatch?.exerciseIds,
     });
   }
 
   function workoutPreview() {
     const plan = buildDraftPlan(draftSplits);
+    const usedEquipment = [...new Set(Object.values(plan.workouts).flatMap(list => list.flatMap(ex => ex.equip)))];
     return `
-      <h3>${STYLE_OPTIONS[draftPrefs.style].label}</h3>
-      <p class="hint">Equipment · ${draftPrefs.equipment.map(id => EQUIPMENT[id]).filter(Boolean).join(", ") || "Bodyweight only"}</p>
+      <h3>${STYLE_OPTIONS[draftPrefs.style].label} · ${TRAINING_TYPES[draftPrefs.trainingType].label}</h3>
+      <p class="hint">Equipment used · ${usedEquipment.map(id => EQUIPMENT[id]).filter(Boolean).join(", ") || "No matching equipment"}</p>
+      ${Object.values(plan.workouts).some(list => list.length < 4) ? `<p class="hint">Some sessions have fewer exercises because this focus and equipment have a limited selection. Tempo does not add exercises outside your choices.</p>` : ""}
       <ul class="workout-preview-days">
         ${WEEKDAYS.map(([day, label]) => {
           const split = plan.splits[day];
@@ -133,7 +135,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         ${setupChoices("workout", workoutSetup)}
         ${workoutSetup === "ai" ? (loadApiKey() ? `
         <label for="workout-routine">Describe your workout and equipment</label>
-        <p class="hint" id="workout-routine-hint">Tell Tempo what you want to train, how many days a week, and what equipment you want to use. Try “Three full-body days with push-ups and rows. I only have dumbbells and a bench.”</p>
+        <p class="hint" id="workout-routine-hint">Tell Tempo what you want to train, how many days a week, and what equipment you want to use. Try “Three days of upper-body calisthenics with a pull-up bar,” or “Legs only, twice a week, with dumbbells.”</p>
         <textarea id="workout-routine" rows="3" maxlength="800" aria-describedby="workout-routine-hint">${esc(routine)}</textarea>
         <button id="match-workout" type="button" class="primary">Build workout preview</button>
         <p class="hint" id="workout-match-status" role="status">${routineMatch ? "Workout preview ready." : "Uses your saved OpenAI key."}</p>
@@ -146,14 +148,22 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         ${workoutSetup === "presets" ? `
         <p class="hint">Built from these plus your goal (${GOAL[draft.goal].label}). Swap exercises and tweak sets anytime on the Workout tab.</p>
 
-        <h3>Lifting days / week</h3>
+        <h3>Strength days / week</h3>
         <div class="seg">
           ${[2,3,4,5,6].map(d => `<button class="${draftPrefs.daysPerWeek === d ? "active" : ""}" data-days="${d}">${d}</button>`).join("")}
         </div>
 
-        <h3>Split style</h3>
-        <div class="training-buttons">
-          ${Object.entries(STYLE_OPTIONS).map(([k, v]) => `<button class="${draftPrefs.style === k ? "primary" : ""}" data-style="${k}">${v.label}</button>`).join("")}
+        <div class="training-combinations">
+        <label for="training-focus">Workout focus</label>
+        <select id="training-focus">
+          ${Object.entries(STYLE_OPTIONS).map(([id, option]) => `<option value="${id}" ${draftPrefs.style === id ? "selected" : ""}>${option.label}</option>`).join("")}
+        </select>
+        <p class="hint">Applies to strength sessions. Adjust cardio and rest days in Weekly layout.</p>
+        <label for="training-type">Training type</label>
+        <select id="training-type" aria-describedby="training-type-hint">
+          ${Object.entries(TRAINING_TYPES).map(([id, option]) => `<option value="${id}" ${draftPrefs.trainingType === id ? "selected" : ""}>${option.label}</option>`).join("")}
+        </select>
+        <p class="hint" id="training-type-hint">${TRAINING_TYPES[draftPrefs.trainingType].description} Your equipment selections are kept when you switch types.</p>
         </div>
 
         <h3>Experience</h3>
@@ -200,7 +210,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     return `
       <section class="card">
         <h2>Weekly layout</h2>
-        <p class="hint">Set what each day is. Lift days use your ${STYLE_OPTIONS[draftPrefs.style].label} split; cardio days are treadmill work.</p>
+        <p class="hint">Set what each day is. Lift days use your ${STYLE_OPTIONS[draftPrefs.style].label} focus; cardio uses a treadmill when available, otherwise an outdoor walk.</p>
         <div class="week-edit">
           ${WEEKDAYS.map(([wd, lbl]) => `
             <div class="week-row">
@@ -318,7 +328,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     const liftDays = WEEKDAYS.filter(([day]) => draftSplits[day]?.type === "lift").map(([, label]) => label);
     return `
       <h3>Weekly workout plan</h3>
-      <p>${STYLE_OPTIONS[draftPrefs.style].label} · ${liftDays.join(", ") || "No lifting days scheduled"}</p>
+      <p>${STYLE_OPTIONS[draftPrefs.style].label} · ${TRAINING_TYPES[draftPrefs.trainingType].label} · ${liftDays.join(", ") || "No lifting days scheduled"}</p>
       <h3>${draftFood.weekly ? "Weekly meal plan" : "Daily meal plan"}</h3>
       ${draftFood.weekly ? mealDaysPreview(getMealWeek(mealSettings)) : `<ul class="workout-preview-days">
         ${getMeals(mealSettings).map(meal => `<li><b>${esc(meal.name)}</b><br>${esc(meal.items || "No matching foods for this meal.")}</li>`).join("")}
@@ -659,7 +669,19 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     });
 
     for (const btn of root.querySelectorAll("button[data-days]")) btn.addEventListener("click", () => { draftPrefs.daysPerWeek = +btn.dataset.days; resetSplits(); rerender(); });
-    for (const btn of root.querySelectorAll("button[data-style]")) btn.addEventListener("click", () => { draftPrefs.style = btn.dataset.style; resetSplits(); rerender(); });
+    root.querySelector("#training-focus")?.addEventListener("change", event => {
+      draftPrefs.style = event.target.value;
+      routineMatch = null;
+      resetSplits();
+      rerender();
+      root.querySelector("#training-focus")?.focus({ preventScroll: true });
+    });
+    root.querySelector("#training-type")?.addEventListener("change", event => {
+      draftPrefs.trainingType = event.target.value;
+      routineMatch = null;
+      rerender();
+      root.querySelector("#training-type")?.focus({ preventScroll: true });
+    });
     for (const btn of root.querySelectorAll("button[data-exp]")) btn.addEventListener("click", () => { draftPrefs.experience = btn.dataset.exp; rerender(); });
     for (const btn of root.querySelectorAll("button[data-equipment-panel]")) btn.addEventListener("click", () => {
       equipmentPanel = btn.dataset.equipmentPanel;
@@ -721,6 +743,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         const style = match.daysPerWeek === 2 && match.style === "ppl" ? "full" : match.style;
         const scheduleChanged = style !== draftPrefs.style || match.daysPerWeek !== draftPrefs.daysPerWeek;
         draftPrefs.style = style;
+        draftPrefs.trainingType = match.trainingType;
         draftPrefs.daysPerWeek = match.daysPerWeek;
         if (match.equipment !== null) {
           draftPrefs.equipment = match.equipment;
@@ -729,13 +752,6 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         }
         routineMatch = { ...match, style };
         if (scheduleChanged) resetSplits();
-        if (match.equipment !== null && !match.equipment.includes("treadmill")) {
-          draftSplits = Object.fromEntries(Object.entries(draftSplits).map(([day, split]) => [
-            day, split.type === "cardio" && split.cardioId === "intervals"
-              ? { type: "cardio", label: "Brisk walk", detail: "Walk outdoors for 20–30 minutes." }
-              : split,
-          ]));
-        }
         rerender();
         if (!isOnboarding) await previewSettings();
       } catch (error) {
@@ -754,6 +770,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       if (preview) preview.innerHTML = workoutPreview();
     });
     root.querySelector("#shuffle-ex")?.addEventListener("click", async () => {
+      if (!await checkWorkoutSelection()) return;
       const ok = await confirmAction(
         "Rebuild every exercise from scratch? Your weekly layout stays, but any per-exercise swaps are discarded.",
         { title: "Shuffle exercises?", okLabel: "Shuffle" });
@@ -824,9 +841,19 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     window.scrollTo(0, 0);
   }
 
+  async function checkWorkoutSelection() {
+    const plan = buildDraftPlan(draftSplits);
+    if (Object.values(plan.workouts).some(list => !list.length)) {
+      await notify("No exercises match one or more sessions. Choose equipment that fits your training type, or change your focus or training type. Your saved plan is unchanged.", { title: "Check your workout choices" });
+      return false;
+    }
+    return true;
+  }
+
   async function previewSettings() {
     const err = validate(draft);
     if (err) { await notify(err, { title: "Check your inputs" }); return; }
+    if (activeSection !== "meals" && !await checkWorkoutSelection()) return;
     const targets = computeTargets(draft);
     const mealTargets = draftTargets();
     const html = activeSection === "workout" ? workoutPreview()
@@ -842,6 +869,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
   async function doSave() {
     const err = validate(draft);
     if (err) { step = 0; if (!isOnboarding) activeSection = "profile"; rerender(); await notify(err, { title: "Check your inputs" }); return; }
+    if ((isOnboarding || activeSection !== "meals") && !await checkWorkoutSelection()) return;
     const targets = computeTargets(draft);
     update("settings", (s) => ({
       ...s,

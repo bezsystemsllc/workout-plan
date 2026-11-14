@@ -1,3 +1,4 @@
+import { STYLE_OPTIONS, TRAINING_TYPES } from "./data/training.js";
 import { FOODS } from "./data/foods.js";
 import { isUsdaMatch } from "./lib/usda-foods.js";
 
@@ -255,7 +256,8 @@ function normalizeSettings(value, strict) {
   if (isPlainObject(value.trainingPrefs)) {
     out.trainingPrefs = {
       daysPerWeek: Math.round(clampNumber(value.trainingPrefs.daysPerWeek, 2, 6, 3)),
-      style: ["full", "ul", "ppl"].includes(value.trainingPrefs.style) ? value.trainingPrefs.style : "ppl",
+      style: Object.hasOwn(STYLE_OPTIONS, value.trainingPrefs.style) ? value.trainingPrefs.style : "ppl",
+      trainingType: Object.hasOwn(TRAINING_TYPES, value.trainingPrefs.trainingType) ? value.trainingPrefs.trainingType : "mixed",
       experience: ["beginner", "intermediate", "advanced"].includes(value.trainingPrefs.experience) ? value.trainingPrefs.experience : "intermediate",
       equipment: normalizeStringArray(value.trainingPrefs.equipment, 30, 40),
       ...(["presets", "custom"].includes(value.trainingPrefs.equipmentMode)
@@ -358,6 +360,7 @@ function normalizePlanMeta(value) {
   if (!isPlainObject(value)) return {};
   const out = {
     style: safeString(value.style, 20, ""),
+    trainingType: Object.hasOwn(TRAINING_TYPES, value.trainingType) ? value.trainingType : "mixed",
     daysPerWeek: Math.round(clampNumber(value.daysPerWeek, 2, 6, 3)),
     experience: safeString(value.experience, 30, ""),
     equipment: normalizeStringArray(value.equipment, 30, 40),

@@ -1548,3 +1548,6 @@ summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; b
 .log-methods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
 .log-methods button { min-width: 0; }
 [hidden] { display: none !important; }
+
+.training-combinations { margin-top: 16px; }
+.training-combinations select { width: 100%; }

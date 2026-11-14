@@ -1,5 +1,5 @@
 import { load, loadApiKey } from "../storage.js";
-import { DEFAULT_PREFS, STYLE_OPTIONS } from "../lib/plan.js";
+import { DEFAULT_PREFS, STYLE_OPTIONS, TRAINING_TYPES } from "../lib/plan.js";
 import { EQUIPMENT } from "../data/exercises.js";
 import { compareProgressPhotos } from "../lib/progress-photo-ai.js";
 import { navigate } from "../app.js";
@@ -58,6 +58,7 @@ export function wireProgressPhotos(root) {
       const review = await compareProgressPhotos(apiKey, files.get("earlier"), files.get("recent"), {
         goal: settings.profile?.goal,
         split: STYLE_OPTIONS[prefs.style]?.label,
+        trainingType: TRAINING_TYPES[prefs.trainingType]?.label,
         daysPerWeek: prefs.daysPerWeek,
         equipment: prefs.equipment.map(id => EQUIPMENT[id]).filter(Boolean),
         notes: String(files.get("notes") || "").trim().slice(0, 800),

@@ -1,5 +1,5 @@
-import { getActivePlan, alternativesFor, prescribeExercise, dayLabelFor, DEFAULT_PREFS } from "../lib/plan.js";
-import { EXERCISES, exercisesFor } from "../data/exercises.js";
+import { getActivePlan, alternativesFor, prescribeExercise, dayLabelFor, DEFAULT_PREFS, exercisesForPlan } from "../lib/plan.js";
+import { EXERCISES } from "../data/exercises.js";
 import { iconFor, demoLink } from "../data/exercise-icons.js";
 import { coachNoteForExercise, latestCoachReview } from "../lib/coach.js";
 import { buildProgressionHistory, progressionFor, sessionsForDay } from "../lib/progression.js";
@@ -108,7 +108,7 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
     }));
   }
 
-  const pool = exercisesFor(equipment);
+  const pool = exercisesForPlan(equipment, plan.meta);
   const activeSet = findActiveSet(items);
 
   root.innerHTML = `
@@ -139,6 +139,7 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
           canCustomize,
           equipment,
           coachNoteForExercise(coachReview, it.meta.name),
+          plan.meta,
         )).join("")}
       </div>
     </details>
@@ -283,7 +284,7 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
     const name = session.exercises[ei].name;
     const keepSets = session.exercises[ei].sets.length;
     const fresh = prescribeExercise(newId, goal, keepSets);
-    if (!fresh || fresh.name === name) return;
+    if (!fresh || fresh.name === name || !pool.some(ex => ex.id === newId)) return;
     snapshot();
     const tIdx = template.findIndex(m => m.name === name);
     if (tIdx >= 0) { const list = [...template]; list[tIdx] = fresh; setTemplate(list); }
@@ -319,7 +320,7 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
 
   function addExercise(id) {
     const fresh = prescribeExercise(id, goal, 3);
-    if (!fresh) return;
+    if (!fresh || !pool.some(ex => ex.id === id)) return;
     if (session.exercises.some(e => e.name === fresh.name)) { toast(`${fresh.name} is already in this day`); return; }
     snapshot();
     setTemplate([...template, fresh]);
@@ -395,7 +396,7 @@ function renderGuidedSet(activeSet, items, lastSession, day, allWorkouts, progre
   `;
 }
 
-function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, progressionHistory, starterContext, canCustomize, equipment, coachNote) {
+function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, progressionHistory, starterContext, canCustomize, equipment, coachNote, preferences) {
   const lastSets = lastEx?.sets || [];
   const prog = progressionFor(meta, day, allWorkouts, progressionHistory, starterContext);
   const chip = prog.text ? `<div class="overload-hint hint-${esc(prog.kind)}">${PROG_ICON[prog.kind] || "💡"} ${esc(prog.text)}</div>` : "";
@@ -405,7 +406,7 @@ function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, progressionH
   const tW = prog.target?.w ?? "";
   const tR = prog.target?.r ?? "";
   const loadInput = loadInputFor(meta, starterContext?.units);
-  const alts = canCustomize ? alternativesFor(meta, equipment) : [];
+  const alts = canCustomize ? alternativesFor(meta, equipment, preferences) : [];
   const isBarbell = (meta.equip || []).some(e => ["barbell", "ezbar"].includes(e)) ||
     /barbell|bench press|squat|deadlift|overhead press|row/i.test(meta.name);
   const allTimePRs = getAllTimePRs(allWorkouts);
