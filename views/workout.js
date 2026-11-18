@@ -181,7 +181,7 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
   batchToggle?.addEventListener("click", () => {
     batchOptions.hidden = !batchOptions.hidden;
     batchToggle.setAttribute("aria-expanded", String(!batchOptions.hidden));
-    batchToggle.textContent = batchOptions.hidden ? "Log finished sets" : "Back to one set";
+    batchToggle.textContent = batchOptions.hidden ? "Multiple sets" : "Cancel";
     refreshLogLabel();
     if (!batchOptions.hidden) batchCount.focus();
   });
@@ -408,7 +408,7 @@ function renderGuidedSet(activeSet, items, lastSession, day, allWorkouts, progre
         <div><span>Rest</span><b>${esc(meta.rest)}s</b></div>
       </div>
       <div data-batch-options id="batch-options" hidden>
-        <label for="batch-count">Finished sets for this exercise</label>
+        <label for="batch-count">How many sets did you finish?</label>
         <select id="batch-count" data-batch-count>
           ${logged.sets.filter(set => !setComplete(set)).map((_, i) => `<option value="${i + 1}">${i + 1} ${i === 0 ? "set" : "sets"}</option>`).join("")}
         </select>
@@ -427,7 +427,7 @@ function renderGuidedSet(activeSet, items, lastSession, day, allWorkouts, progre
       </div>
       ${isBarbell ? `<button class="ghost small" type="button" id="open-plate-calc">Plates &amp; warmup</button>` : ""}
       <button class="primary guided-next" data-complete-set>${hasNext ? "Log set" : "Log final set"}</button>
-      <button class="ghost today-action" type="button" data-batch-toggle aria-controls="batch-options" aria-expanded="false">Log finished sets</button>
+      <button class="today-action" type="button" data-batch-toggle aria-controls="batch-options" aria-expanded="false">Multiple sets</button>
     </section>
   `;
 }

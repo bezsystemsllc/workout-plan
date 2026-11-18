@@ -591,6 +591,7 @@ body.modal-open { overflow: hidden; }
 .guided-inputs label { margin: 0; min-width: 0; }
 #open-plate-calc { margin-top: 6px; }
 .guided-inputs label span { display: block; margin-bottom: 4px; }
+.guided-set [data-batch-toggle] { background: var(--text); color: var(--surface); border-color: var(--text); }
 .guided-next { width: 100%; margin-top: 12px; }
 .workout-details { margin-bottom: 12px; transition: all 0.3s ease; }
 .workout-details summary {
