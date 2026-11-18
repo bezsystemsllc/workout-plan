@@ -86,7 +86,6 @@ export function renderMeals(root) {
     const trainingDay = getActivePlan().splits[dowKey].type !== "rest";
     const waterTargetMlVal = waterTargetMl(profile, { trainingToday: trainingDay });
     const times = mealTimes(profile?.wakeTime, profile?.sleepTime);
-    const cutoff = fmtTime12(times["evening"]);
     const nowMin = isToday ? (new Date().getHours() * 60 + new Date().getMinutes()) : -1;
 
     root.innerHTML = `
@@ -96,7 +95,7 @@ export function renderMeals(root) {
           <h2 style="margin:0">Meal plan</h2>
           ${generated ? `<button class="ghost small" id="shuffle-meals" style="min-height:32px;padding:4px 10px">🎲 ${settings.foodPrefs.weekly ? "Shuffle week" : "Shuffle"}</button>` : ""}
         </div>
-        <div class="hint">Times based on wake ${fmtTime12(profile?.wakeTime || "06:30")} / bed ${fmtTime12(profile?.sleepTime || "22:30")}. Last bite by <b>${cutoff}</b>. Adjust in Settings.</div>
+        <div class="hint">Suggested meal times use your wake time (${fmtTime12(profile?.wakeTime || "06:30")}) and bedtime (${fmtTime12(profile?.sleepTime || "22:30")}). Change your schedule in Settings.</div>
         ${generated ? `<div class="hint">Built from your food preferences to hit your macros — portions are estimates, tweak to taste.</div>` : ""}
         <ul class="checklist">
           ${MEALS.map(m => {

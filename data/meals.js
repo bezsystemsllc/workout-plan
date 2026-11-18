@@ -36,11 +36,3 @@ export const MEALS = [
     kcal: 150, p: 14, f: 8, c: 7,
   },
 ];
-
-export const RULES = [
-  "Measure nuts — 0.5 oz at night, 0.5 oz max if added elsewhere.",
-  "Cap protein bars at 3/week.",
-  "Bread max 2 slices/week.",
-  "No liquid calories besides the shake.",
-  "Hard cutoff: dinner ≥3 hr before bed, evening snack ≥1 hr before bed.",
-];

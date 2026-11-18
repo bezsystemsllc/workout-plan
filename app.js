@@ -4,7 +4,6 @@ import { renderMeals } from "./views/meals.js";
 import { renderProgress } from "./views/progress.js";
 import { renderSettings } from "./views/settings.js";
 import { load } from "./storage.js";
-import { RULES } from "./data/meals.js";
 import { openInfo } from "./lib/modal.js";
 import { syncThemeColor } from "./lib/theme.js";
 
@@ -93,9 +92,13 @@ document.getElementById("today-date").textContent = new Date().toLocaleDateStrin
   weekday: "long", month: "short", day: "numeric",
 });
 
-// Daily-rules help sheet — reachable from any page via the header button.
 document.getElementById("help-btn")?.addEventListener("click", () => {
-  openInfo("Daily rules", `<p class="modal-lead">A few habits to keep every day:</p><ul class="help-rules">${RULES.map((r) => `<li>${r}</li>`).join("")}</ul>`);
+  openInfo("Daily guide", `<ul class="help-rules">
+    <li><b>Today.</b> Check whether your plan calls for lifting, cardio, or rest.</li>
+    <li><b>Workout.</b> On lifting days, enter what you did and tap <b>Log set</b>. The next set of that exercise starts with your last weight and reps. You can change either value.</li>
+    <li><b>Meals.</b> If you track meals, tap <b>Mark as eaten</b> for a planned meal or <b>Log other food</b> for something else. Your meal times are suggestions.</li>
+    <li><b>Progress.</b> Review your strength history or add a weigh-in when you want to track a trend.</li>
+  </ul>`);
 });
 
 route();
