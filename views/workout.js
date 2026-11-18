@@ -169,7 +169,25 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
     });
   }
 
-  root.querySelector("button[data-complete-set]")?.addEventListener("click", () => {
+  const batchOptions = root.querySelector("[data-batch-options]");
+  const batchCount = root.querySelector("[data-batch-count]");
+  const batchToggle = root.querySelector("[data-batch-toggle]");
+  const logButton = root.querySelector("button[data-complete-set]");
+  const singleLabel = logButton?.textContent;
+  function refreshLogLabel() {
+    const count = Number(batchCount.value);
+    logButton.textContent = batchOptions.hidden ? singleLabel : `Save ${count} ${count === 1 ? "set" : "sets"}`;
+  }
+  batchToggle?.addEventListener("click", () => {
+    batchOptions.hidden = !batchOptions.hidden;
+    batchToggle.setAttribute("aria-expanded", String(!batchOptions.hidden));
+    batchToggle.textContent = batchOptions.hidden ? "Log finished sets" : "Back to one set";
+    refreshLogLabel();
+    if (!batchOptions.hidden) batchCount.focus();
+  });
+  batchCount?.addEventListener("change", refreshLogLabel);
+
+  logButton?.addEventListener("click", () => {
     if (!activeSet) return;
     const loadEl = root.querySelector("[data-guide-field='w']");
     const repsEl = root.querySelector("[data-guide-field='r']");
@@ -177,8 +195,6 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
     const si = +loadEl?.dataset.si;
     if (!Number.isInteger(ei) || !Number.isInteger(si) || !session.exercises[ei]?.sets[si]) return;
 
-    session.exercises[ei].sets[si].w = loadEl.value;
-    session.exercises[ei].sets[si].r = repsEl.value;
     if (!repsEl.value || Number(repsEl.value) <= 0 || !repsEl.checkValidity() || !loadEl.checkValidity()) {
       toast("Check the set values before logging");
       (loadEl.checkValidity() ? repsEl : loadEl).focus();
@@ -188,19 +204,34 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
     // Check for Lifetime Personal Record (PR)
     const pr = checkSetForPR(activeSet.meta.name, loadEl.value, repsEl.value, allWorkouts, dateKey, si);
 
+    const batch = !batchOptions.hidden;
+    const count = batch ? Number(batchCount.value) : 1;
+    const targets = activeSet.logged.sets.filter((set, index) =>
+      index === si || (index > si && !setComplete(set))
+    ).slice(0, count);
+    if (targets.length !== count) {
+      toast("The remaining sets changed. Review the full workout before logging.");
+      return;
+    }
+    for (const set of targets) {
+      set.w = loadEl.value;
+      set.r = repsEl.value;
+    }
+    const restRequested = batch && batchOptions.querySelector("[data-batch-rest]").checked;
     setSession(session);
     const done = !findActiveSet(itemsAfter(session, items));
 
+    const saved = count === 1 ? "1 set saved" : `${count} sets saved`;
     if (pr.isPR) {
       launchConfetti();
-      toast(`🏆 NEW PR: ${activeSet.meta.name} — ${pr.label}!`);
+      toast(`${batch ? saved + " · " : ""}🏆 NEW PR: ${activeSet.meta.name} — ${pr.label}!`);
       if (navigator.vibrate) navigator.vibrate([100, 60, 150, 60, 250]);
     } else {
-      toast(done ? "Workout complete" : "Set saved");
+      toast(batch ? saved : done ? "Workout complete" : "Set saved");
     }
 
     rerender();
-    if (!done) mountTimer(activeSet.meta.rest || 90, { exerciseName: `Set saved · Rest after ${activeSet.meta.name}` });
+    if (restRequested || (!batch && !done)) mountTimer(activeSet.meta.rest || 90, { exerciseName: `${batch ? saved : "Set saved"} · Rest after ${activeSet.meta.name}` });
   });
 
   root.querySelector("#open-plate-calc")?.addEventListener("click", () => {
@@ -376,6 +407,14 @@ function renderGuidedSet(activeSet, items, lastSession, day, allWorkouts, progre
         <div><span>Last</span><b>${esc(lastLbl)}</b></div>
         <div><span>Rest</span><b>${esc(meta.rest)}s</b></div>
       </div>
+      <div data-batch-options id="batch-options" hidden>
+        <label for="batch-count">Finished sets for this exercise</label>
+        <select id="batch-count" data-batch-count>
+          ${logged.sets.filter(set => !setComplete(set)).map((_, i) => `<option value="${i + 1}">${i + 1} ${i === 0 ? "set" : "sets"}</option>`).join("")}
+        </select>
+        <p class="hint">Enter the same values for each set. You can edit individual sets in Full workout.</p>
+        <label><input type="checkbox" data-batch-rest /> Start rest timer after saving</label>
+      </div>
       <div class="guided-inputs">
         <label>
           <span>${esc(loadInput.label)}</span>
@@ -388,6 +427,7 @@ function renderGuidedSet(activeSet, items, lastSession, day, allWorkouts, progre
       </div>
       ${isBarbell ? `<button class="ghost small" type="button" id="open-plate-calc">Plates &amp; warmup</button>` : ""}
       <button class="primary guided-next" data-complete-set>${hasNext ? "Log set" : "Log final set"}</button>
+      <button class="ghost today-action" type="button" data-batch-toggle aria-controls="batch-options" aria-expanded="false">Log finished sets</button>
     </section>
   `;
 }
