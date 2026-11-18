@@ -1362,6 +1362,6 @@ export function exerciseDemoHtml(name) {
   const video = DEMO_VIDEOS.get(name) || DEMO_VIDEOS.get(ALIAS_MAP[name]);
   const url = video ? `https://www.youtube.com/watch?v=${video}`
     : `https://www.youtube.com/results?search_query=${encodeURIComponent(name + " proper form")}`;
-  const label = video ? "Watch YouTube demo" : "Find YouTube demos";
-  return `<a class="ex-demo" href="${esc(url)}" target="_blank" rel="noopener noreferrer" aria-label="${label} for ${esc(name)} (opens in a new tab)">${label}</a>`;
+  const label = video ? "Watch demo" : "Find demos";
+  return `<a class="ex-demo" href="${esc(url)}" target="_blank" rel="noopener noreferrer" aria-label="${label} for ${esc(name)} on YouTube (opens in a new tab)">${label}</a>`;
 }
