@@ -1,3 +1,5 @@
+import { esc } from "../lib/html.js";
+
 // Dynamic, animated SVG exercise illustrations.
 // 48x48 viewBox with:
 //   - Category color coding (data-cat="push|pull|legs|core|cardio")
@@ -1269,7 +1271,97 @@ export function iconFor(name, category) {
   return CATEGORY_ICONS[category] || CATEGORY_ICONS.push;
 }
 
-export function demoLink(name) {
-  const q = encodeURIComponent(name.replace(/\(.*?\)/g, "").trim() + " proper form");
-  return `https://www.youtube.com/results?search_query=${q}`;
+const DEMO_VIDEOS = new Map([
+  ["Barbell bench press", "CayG6UYqL8g"],
+  ["Dumbbell bench press", "5Y3VZsLb1Ys"],
+  ["Dumbbell floor press", "T0Y3OBF1bNI"],
+  ["Band chest press", "po8JwkjexbU"],
+  ["Push-up", "WDIpL0pjun0"],
+  ["Incline dumbbell press", "OC7Qs_SAO2E"],
+  ["Seated dumbbell press", "RgkzQ008m3I"],
+  ["Standing dumbbell press", "OM23fjJB3-0"],
+  ["Band overhead press", "9JW83TriIs8"],
+  ["Dumbbell lateral raise", "XPPfnSEATJA"],
+  ["Band lateral raise", "61CxHd38cns"],
+  ["Dumbbell overhead extension", "26SoEGFmKAI"],
+  ["EZ-bar skullcrusher", "9Ti0Z9bF_P0"],
+  ["Band triceps pushdown", "6_RYM9IyGxs"],
+  ["Bench dip", "WVeZDBhZwLA"],
+  ["Pike push-up", "2b5t0Cu2nQI"],
+  ["Decline push-up (feet up)", "HgPIETvnSHA"],
+  ["Diamond push-up", "l02EZAm-qn0"],
+  ["Barbell bent-over row", "rqTOAM8WoeM"],
+  ["Single-arm dumbbell row", "dFzUjzfih7k"],
+  ["Bent-over dumbbell row", "yrkXOpp2714"],
+  ["Seated band row", "ybLaUiJaNxI"],
+  ["Band lat pulldown", "V5QLYAk_G24"],
+  ["Dumbbell pullover", "oui4lL03D0A"],
+  ["Band face pull", "PYj77in44ms"],
+  ["Band pull-apart", "9v_aDcAszDU"],
+  ["Dumbbell rear-delt fly", "lPt0GqwaqEw"],
+  ["EZ-bar curl", "PpLPrakn0eQ"],
+  ["EZ-bar preacher curl", "jLBwgCp1g6A"],
+  ["Dumbbell biceps curl", "nBzLCE-dcRQ"],
+  ["Dumbbell hammer curl", "CFBZ4jN1CMI"],
+  ["Band biceps curl", "aoo5J1suYVQ"],
+  ["Dumbbell shrug", "xiLT85G_GuU"],
+  ["Inverted row (table/bar)", "0AsxBmXeOIo"],
+  ["Superman hold", "LZoWdePF1NQ"],
+  ["Goblet squat", "JO7D6GJ98wY"],
+  ["Dumbbell box squat", "wL9FSf7ZENU"],
+  ["Bodyweight squat", "P-yaD24bUE8"],
+  ["Dumbbell Romanian deadlift", "QFbZevA7dps"],
+  ["Barbell Romanian deadlift", "xgusDooVfKU"],
+  ["Band good morning", "7fXEbTmDH58"],
+  ["Dumbbell walking lunge", "C6eB42sSwiU"],
+  ["Bulgarian split squat", "hbw7hdyOpq0"],
+  ["Dumbbell step-up", "hgkk12L_Umk"],
+  ["Dumbbell calf raise", "_iYwv4QVFjM"],
+  ["Standing calf raise", "K_jsGgztcGU"],
+  ["Glute bridge", "R1OXPHRqehw"],
+  ["Reverse lunge", "-Nr6dqEvz3Q"],
+  ["Plate-loaded leg extension", "EKoqwckuIlE"],
+  ["Plate-loaded lying leg curl", "94OmAFqnmuU"],
+  ["Plank", "jaAu0BqN9b8"],
+  ["Weighted plank", "aET_xBkImX8"],
+  ["Lying leg raise", "HPXqFqBK728"],
+  ["Russian twist", "s0kT80JLCfA"],
+  ["Band crunch", "g3EVVCKsfmw"],
+  ["Dead bug", "bxn9FBrt4-A"],
+  ["Bicycle crunch", "VaL7XWK3MVE"],
+  ["Side plank", "iNbH7_edNI8"],
+  ["Barbell overhead press", "cGnhixvC8uA"],
+  ["Machine chest press", "pLofEAcfsO8"],
+  ["Machine shoulder press", "Gkk-6q7Rq-s"],
+  ["Cable lateral raise", "C64pUMkv0jQ"],
+  ["Cable triceps pushdown", "DkKYlekgUkU"],
+  ["Pull-up", "9yVGh3XbJ34"],
+  ["Lat pulldown", "oMJmAHRZXBk"],
+  ["Seated cable row", "q4boNkB4uaM"],
+  ["Cable curl", "GNlopToAZyg"],
+  ["Cable face pull", "0Po47vvj9g4"],
+  ["Hanging leg raise", "rbOJSK07AGA"],
+  ["Barbell back squat", "KB_r0K3Ce2E"],
+  ["Leg press", "cDGOn-yfKJA"],
+  ["Barbell deadlift", "Z6gcRfPNcZo"],
+  ["Barbell hip thrust", "Gz74laKkzGU"],
+  ["Seated leg curl", "_2Kd0d-JEUM"],
+  ["Calf raise (machine)", "MAMzF7iZNkc"],
+  ["Kettlebell swing", "1Qi0NQW89Oc"],
+  ["Turkish get-up", "2dx2rM1FSgE"],
+  ["Kettlebell goblet squat", "sIX71MwChNg"],
+  ["Kettlebell shoulder press", "qlh1f6e_2X8"],
+  ["Kettlebell row", "IyQAMOV0WAc"],
+  ["Treadmill intervals", "MpzWlWAGLgE"],
+  ["Incline walk", "Ii71nAaRc_8"],
+  ["Steady-state run", "Q1GBckR4H-E"],
+  ["Tempo run", "k5vqiyry2z8"],
+]);
+
+export function exerciseDemoHtml(name) {
+  const video = DEMO_VIDEOS.get(name) || DEMO_VIDEOS.get(ALIAS_MAP[name]);
+  const url = video ? `https://www.youtube.com/watch?v=${video}`
+    : `https://www.youtube.com/results?search_query=${encodeURIComponent(name + " proper form")}`;
+  const label = video ? "Watch YouTube demo" : "Find YouTube demos";
+  return `<a class="ex-demo" href="${esc(url)}" target="_blank" rel="noopener noreferrer" aria-label="${label} for ${esc(name)} (opens in a new tab)">${label}</a>`;
 }

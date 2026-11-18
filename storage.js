@@ -168,6 +168,7 @@ function normalizeMeals(value, strict) {
       checked: normalizeStringArray(entry.checked, 80, 60),
       custom: normalizeFoodList(entry.custom, strict),
       waterMl: clampNumber(entry.waterMl, 0, 20000, 0),
+      ...(entry.lastWaterMl > 0 ? { lastWaterMl: clampNumber(entry.lastWaterMl, 0, 20000, 0) } : {}),
     };
   }
   return out;
@@ -248,6 +249,7 @@ function normalizeSettings(value, strict) {
   if (!isPlainObject(value)) return structuredClone(DEFAULT_STATE.settings);
   const out = structuredClone(DEFAULT_STATE.settings);
   out.units = value.units === "metric" ? "metric" : "imperial";
+  if (value.mealSetupPending === true) out.mealSetupPending = true;
   out.profile = normalizeProfile(value.profile, strict);
   out.targets = normalizeTargets(value.targets);
   out.targetWeightLb = clampNumber(value.targetWeightLb, 50, 800, DEFAULT_STATE.settings.targetWeightLb);
@@ -531,6 +533,17 @@ export function update(section, mutator) {
   const next = mutator(cache[section]);
   if (next !== undefined) cache[section] = next;
   writeSection(section);
+}
+
+// A zero amount undoes the most recent water addition for this day.
+export function logWater(date, amount) {
+  let change = 0;
+  update("meals", all => {
+    const day = all[date] || { checked: [], custom: [], waterMl: 0 };
+    change = amount || -Math.min(day.lastWaterMl || 0, day.waterMl);
+    return { ...all, [date]: { ...day, waterMl: day.waterMl + change, lastWaterMl: Math.max(0, change) } };
+  });
+  return change;
 }
 
 export function exportJSON() {

@@ -556,12 +556,14 @@ body.modal-open { overflow: hidden; }
 .exercise .ex-title > div { min-width: 0; }
 .exercise .ex-name { font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
 .exercise .ex-target { font-size: 12px; color: var(--muted); white-space: nowrap; }
-.exercise .ex-demo { font-size: 11px; color: var(--accent); text-decoration: none; display: inline-block; margin-top: 2px; }
-.exercise .ex-demo:hover { text-decoration: underline; }
+.ex-demo { display: inline-block; padding-block: 4px; font-size: 13px; color: var(--accent); text-underline-offset: 2px; }
 .guided-set { border-left: 4px solid var(--accent); }
 .guided-set h2 { margin: 2px 0 0; }
-.guided-top {
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+.guided-top { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.guided-top .ex-demo {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 44px; padding: 8px 12px; border: 1px solid var(--accent);
+  border-radius: 10px; text-decoration: none; font-weight: 600;
 }
 .guided-progress {
   flex-shrink: 0; min-width: 48px; text-align: center;
@@ -584,9 +586,10 @@ body.modal-open { overflow: hidden; }
   display: block; margin-top: 2px; font-size: 13px; overflow-wrap: anywhere;
 }
 .guided-inputs {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 10px; margin-top: 12px;
 }
-.guided-inputs label { margin: 0; }
+.guided-inputs label { margin: 0; min-width: 0; }
+#open-plate-calc { margin-top: 6px; }
 .guided-inputs label span { display: block; margin-bottom: 4px; }
 .guided-next { width: 100%; margin-top: 12px; }
 .workout-details { margin-bottom: 12px; transition: all 0.3s ease; }
@@ -978,6 +981,17 @@ select {
   .wizard, .wizard-track { transition: none !important; }
   .ai-progress-mark, .ai-progress-fill { animation: none; }
   .ai-progress:not(.done):not(.error) .ai-progress-fill { width: 65%; }
+}
+
+@media (max-width: 480px) {
+  .date-nav { align-items: stretch; }
+  .date-nav .date-label { margin-bottom: 0; justify-content: center; }
+
+  .timer-modal .panel { width: calc(100% - 24px); min-width: 0; }
+  .timer-modal .presets, .timer-modal .timer-controls { display: grid; }
+  .timer-modal .presets { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .timer-modal .presets button { padding-inline: 2px; }
+  .timer-modal .timer-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* Narrow phones: a 4-up macro grid gets cramped */
@@ -1551,3 +1565,6 @@ summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; b
 
 .training-combinations { margin-top: 16px; }
 .training-combinations select { width: 100%; }
+
+.meal-check { display: grid; justify-items: center; gap: 4px; margin: 0; font-size: 12px; cursor: pointer; }
+#setup-days, #setup-experience, #setup-equipment { width: 100%; margin-bottom: 12px; }

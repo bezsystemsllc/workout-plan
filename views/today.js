@@ -1,5 +1,5 @@
 import { getActivePlan, dayLabelFor } from "../lib/plan.js";
-import { iconFor } from "../data/exercise-icons.js";
+import { iconFor, exerciseDemoHtml } from "../data/exercise-icons.js";
 import { getMeals } from "../lib/meals.js";
 import { greeting } from "../data/motivation.js";
 import { waterTargetMl, mlToOz, mealTimes, fmtTime12, toMin, pct, barClass } from "../lib/calc.js";
@@ -7,15 +7,20 @@ import { getActiveSuggestions, dismissSuggestion } from "../lib/adaptations.js";
 import { applyCoachChanges, planCoachChanges, latestCoachReview, requestCoachReview, COACH_NOTE_TTL_DAYS } from "../lib/coach.js";
 import { esc } from "../lib/html.js";
 import { confirmForm, toast } from "../lib/modal.js";
-import { load, loadApiKey, update, todayISO, weekdayKey } from "../storage.js";
+import { load, loadApiKey, logWater, update, todayISO, weekdayKey } from "../storage.js";
 import { navigate } from "../app.js";
 import { aiProgressHtml, setAiProgress } from "../lib/ai-progress.js";
 
 export function renderToday(root) {
   const plan = getActivePlan();
   const dow = weekdayKey();
-  const split = plan.splits[dow];
+  const scheduled = plan.splits[dow];
   const today = todayISO();
+  const session = load("workouts")[today];
+  const split = session ? { type: "lift", day: session.day, label: dayLabelFor(session.day) } : scheduled;
+  const exercises = session?.exercises || plan.workouts[split.day] || [];
+  const sets = session?.exercises.flatMap(ex => ex.sets) || [];
+  const finished = sets.length > 0 && sets.every(set => String(set.r ?? "").trim());
   const settings = load("settings");
   const mealsState = load("meals")[today] || { checked: [], custom: [], waterMl: 0 };
   const targets = settings.targets;
@@ -44,15 +49,18 @@ export function renderToday(root) {
           <h2 style="margin:0">Today's workout</h2>
           <span class="muted">${esc(split.label)}</span>
         </div>
-        ${renderTrainingSummary(split, plan.workouts)}
+        ${split.type === "lift" ? `
+          <p class="hint">${exercises.length} exercises</p>
+          <button class="primary today-action" id="go-workout">${finished ? "View completed workout" : session ? "Resume workout" : "Start workout"}</button>
+          <details class="compact-details"><summary>View exercises</summary>${renderTrainingSummary(split, { [split.day]: exercises })}</details>
+        ` : renderTrainingSummary(split, plan.workouts)}
       `}
-      ${split.type === "lift"
-        ? `<button class="primary today-action" id="go-workout">Start workout</button>`
-        : ""}
-      <button class="today-action" id="update-workout">Update workout</button>
+      <button class="ghost today-action" id="update-workout">Edit weekly plan</button>
     </section>
     ${suggestions.map(renderSuggestion).join("")}
 
+    ${settings.mealSetupPending ? `<section class="card"><h2>Meals</h2>
+      <button class="today-action" id="go-meals">Set up meals</button></section>` : `
     <section class="card">
       <div class="spread">
         <h2 style="margin:0">Today's meals</h2>
@@ -75,10 +83,11 @@ export function renderToday(root) {
           <span class="muted small">Next up</span>
           <div><b>${esc(nextMeal.m.name)}</b> · <span class="meal-time">${esc(fmtTime12(times[nextMeal.m.id]))}</span></div>
           <div class="hint">${esc(nextMeal.m.items)}</div>
+          <button class="primary today-action" id="mark-meal">Mark as eaten</button>
         </div>
       ` : ""}
-      <button class="primary today-action" id="go-meals">Open meal plan</button>
-    </section>
+      <button class="today-action" id="go-meals">Open meal plan</button>
+    </section>`}
 
     <section class="card today-hydration">
       <div class="water-stats-row">
@@ -108,37 +117,40 @@ export function renderToday(root) {
           <span class="water-tile-val">+${metric ? "750" : "24"}</span>
           <span class="water-tile-sub">Shaker</span>
         </button>
-        <button class="water-tile undo-tile" type="button" data-add-water="${metric ? -250 : -237}" title="Undo 1 glass">
+        <button class="water-tile undo-tile" type="button" data-add-water="0" title="Undo last drink" ${mealsState.lastWaterMl ? "" : "disabled"}>
           <span class="water-tile-icon">↩️</span>
-          <span class="water-tile-val">−${metric ? "250" : "8"}</span>
+          <span class="water-tile-val">${mealsState.lastWaterMl ? "−" + showWater(mealsState.lastWaterMl) : "—"}</span>
           <span class="water-tile-sub">Undo</span>
         </button>
       </div>
     </section>
 
-    <section class="card today-coach">
-      <h2>Coach review</h2>
+    <details class="card today-coach">
+      <summary>Coach review</summary>
       <p class="hint">Review recent meals, workouts, and weight trends using your own OpenAI key.</p>
       ${loadApiKey()
         ? `<button class="primary today-action" id="coach-review">Analyze progress</button>`
         : `<button class="primary today-action" id="coach-review" data-needs-key>Set up AI coach key</button>`}
       ${aiProgressHtml("coach-ai-progress")}
       ${coachReview ? `<details class="compact-details"><summary>Latest coach review</summary>${renderCoachReviewSummary(coachReview)}</details>` : ""}
-    </section>
+    </details>
   `;
 
-  root.querySelector("#go-meals")?.addEventListener("click", () => navigate("meals"));
+  root.querySelector("#mark-meal")?.addEventListener("click", () => {
+    update("meals", all => {
+      const state = all[today] || mealsState;
+      return { ...all, [today]: { ...state, checked: [...new Set([...state.checked, nextMeal.m.id])] } };
+    });
+    toast(`${nextMeal.m.name} marked as eaten`);
+    renderToday(root);
+  });
+  root.querySelector("#go-meals")?.addEventListener("click", () => settings.mealSetupPending ? navigate("settings", { section: "meals" }) : navigate("meals"));
   root.querySelector("#go-workout")?.addEventListener("click", () => navigate("workout"));
   root.querySelector("#update-workout")?.addEventListener("click", () => navigate("settings", { section: "workout" }));
 
   for (const b of root.querySelectorAll("button[data-add-water]")) {
     b.addEventListener("click", () => {
-      const ml = +b.dataset.addWater;
-      update("meals", (all) => {
-        const cur = all[today] || { checked: [], custom: [], waterMl: 0 };
-        const nextMl = Math.max(0, (cur.waterMl || 0) + ml);
-        return { ...all, [today]: { ...cur, waterMl: nextMl } };
-      });
+      const ml = logWater(today, Number(b.dataset.addWater));
       const absAmount = showWater(Math.abs(ml));
       const msg = ml > 0 ? `+${absAmount} ${waterUnit} water logged 💧` : `−${absAmount} ${waterUnit} removed`;
       toast(msg);
@@ -324,7 +336,10 @@ function renderTrainingSummary(split, workouts) {
     return `
       <div class="cardio-block">
         <span class="ex-icon-wrap">${iconFor(split.label, "cardio")}</span>
-        <p class="muted" style="margin:0">${esc(split.detail || "Conditioning day — treadmill.")}</p>
+        <div>
+          <p class="muted" style="margin:0">${esc(split.detail || "Conditioning day — treadmill.")}</p>
+          ${exerciseDemoHtml(split.label)}
+        </div>
       </div>`;
   }
   if (split.type === "soccer") { // legacy fallback plan
@@ -338,7 +353,8 @@ function renderTrainingSummary(split, workouts) {
           <span class="ex-icon-wrap">${iconFor(e.name, e.category)}</span>
           <div style="flex:1">
             <div><b>${esc(e.name)}</b></div>
-            <div class="meta">${esc(e.sets)}×${esc(e.reps)}</div>
+            <div class="meta">${Array.isArray(e.sets) ? `${e.sets.length} sets` : `${esc(e.sets)}×${esc(e.reps)}`}</div>
+            ${exerciseDemoHtml(e.name)}
           </div>
         </li>
       `).join("")}

@@ -1,7 +1,7 @@
 import { clearStorage, load, loadApiKey, saveApiKey, update } from "../storage.js";
 import {
-  ACTIVITY, GOAL, SEX, computeTargets, projectTargetWeightLb,
-  bmr, tdee, kgToLb, lbToKg, cmToFtIn, ftInToCm,
+  ACTIVITY, GOAL, computeTargets, projectTargetWeightLb,
+  kgToLb, lbToKg, cmToFtIn, ftInToCm,
 } from "../lib/calc.js";
 import {
   generatePlan, buildSplits, DEFAULT_PREFS, STYLE_OPTIONS, TRAINING_TYPES, EXPERIENCE,
@@ -9,7 +9,7 @@ import {
 } from "../lib/plan.js";
 import { EQUIPMENT, EQUIPMENT_PRESETS } from "../data/exercises.js";
 import { DIETS, FOODS, PROTEIN_GROUPS, CARB_GROUPS, ALLERGENS, fitsDiet, proteinGroupsForDiet } from "../data/foods.js";
-import { DEFAULT_FOOD_PREFS, getMeals, getMealWeek } from "../lib/meals.js";
+import { DEFAULT_FOOD_PREFS, getMealWeek } from "../lib/meals.js";
 import { notify, confirmAction, confirmForm, toast } from "../lib/modal.js";
 import { esc } from "../lib/html.js";
 import { DEFAULT_OPENAI_MODEL } from "../lib/openai.js";
@@ -34,14 +34,14 @@ const ONBOARDING_DEFAULT = {
 
 export function renderSettings(root, { onboarding = false, requestedTab = "today", section = "", suggestedRoutine = "" } = {}) {
   const settings = load("settings");
-  const isOnboarding = onboarding || !settings.profile;
-  const profile = settings.profile || { ...ONBOARDING_DEFAULT };
+  const isOnboarding = onboarding || (!settings.profile && !(settings.mealSetupPending && settings.plan));
+  const profile = settings.profile || { ...ONBOARDING_DEFAULT, goal: settings.plan?.meta?.goal || ONBOARDING_DEFAULT.goal };
   const units = settings.units || "imperial";
 
   let draft = { ...profile };
   let draftUnits = units;
   const savedPrefs = { ...DEFAULT_PREFS, ...(settings.trainingPrefs || {}) };
-  let draftPrefs = { ...savedPrefs };
+  let draftPrefs = isOnboarding ? { ...savedPrefs, style: "full", experience: "beginner", equipment: [], equipmentMode: "presets" } : { ...savedPrefs };
   draftPrefs.equipmentMode ??= matchingPreset() ? "presets" : "custom";
   let equipmentPanel = draftPrefs.equipmentMode;
   let draftSplits = settings.plan?.splits
@@ -51,8 +51,8 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
   let step = 0; // current wizard step (persists across rerenders)
   let furthestStep = 0;
   let activeSection = ["workout", "meals", "profile", "appearance", "ai"].includes(section) ? section : "";
-  let workoutSetup = suggestedRoutine ? "ai" : null;
-  let foodSetup = null;
+  let workoutSetup = suggestedRoutine ? "ai" : "presets";
+  let foodSetup = "presets";
   let routine = suggestedRoutine;
   let routineMatch = null;
   let foodDescription = "";
@@ -60,7 +60,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
   const planSeed = settings.plan?.meta?.seed ?? Math.floor(Math.random() * 1000000);
 
   function draftTargets() {
-    return isOnboarding || activeSection === "profile" ? computeTargets(draft) : settings.targets;
+    return !settings.profile || activeSection === "profile" ? computeTargets(draft) : settings.targets;
   }
 
   function buildDraftPlan(splits) {
@@ -323,29 +323,35 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       </details>`).join("");
   }
 
-  function setupPlanPreview(targets) {
-    const mealSettings = { targets, foodPrefs: draftFood };
-    const liftDays = WEEKDAYS.filter(([day]) => draftSplits[day]?.type === "lift").map(([, label]) => label);
-    return `
-      <h3>Weekly workout plan</h3>
-      <p>${STYLE_OPTIONS[draftPrefs.style].label} · ${TRAINING_TYPES[draftPrefs.trainingType].label} · ${liftDays.join(", ") || "No lifting days scheduled"}</p>
-      <h3>${draftFood.weekly ? "Weekly meal plan" : "Daily meal plan"}</h3>
-      ${draftFood.weekly ? mealDaysPreview(getMealWeek(mealSettings)) : `<ul class="workout-preview-days">
-        ${getMeals(mealSettings).map(meal => `<li><b>${esc(meal.name)}</b><br>${esc(meal.items || "No matching foods for this meal.")}</li>`).join("")}
-      </ul>`}`;
+  // Keep onboarding controls mounted while showing only the current step.
+  function workoutSetupSteps() {
+    const goals = { fat_loss: "Lose fat", muscle: "Build muscle", recomp: "Build muscle and lose fat", maintain: "Maintain my fitness" };
+    return [
+      { title: "Goal", html: `<section class="card"><h2>What’s your workout goal?</h2>
+        <div class="opt-stack">${Object.entries(goals).map(([id, label]) =>
+          `<button class="opt ${draft.goal === id ? "selected" : ""}" data-goal="${id}" aria-pressed="${draft.goal === id}">${esc(label)}</button>`).join("")}</div></section>` },
+      { title: "Workout", html: `<section class="card"><h2>Your workout week</h2>
+        <label for="setup-days">Workout days per week</label>
+        <select id="setup-days">${[2,3,4,5,6].map(n => `<option ${draftPrefs.daysPerWeek === n ? "selected" : ""}>${n}</option>`).join("")}</select>
+        <label for="setup-experience">Training experience</label>
+        <select id="setup-experience">${Object.entries(EXPERIENCE).map(([id,label]) => `<option value="${id}" ${draftPrefs.experience === id ? "selected" : ""}>${esc(label)}</option>`).join("")}</select>
+        <label for="setup-equipment">Available equipment</label>
+        <select id="setup-equipment">${Object.entries(EQUIPMENT_PRESETS).map(([id,preset]) => `<option value="${id}" ${matchingPreset() === id ? "selected" : ""}>${esc(preset.label)}</option>`).join("")}</select>
+        <p class="hint">Workout days: ${WEEKDAYS.filter(([day]) => draftSplits[day]?.type === "lift").map(([,label]) => label).join(", ")}. You can change these later.</p>
+      </section>` },
+    ];
   }
 
-  // Keep onboarding controls mounted while showing only the current step.
   function buildSteps() {
-    const targets = computeTargets(draft);
+    if (isOnboarding) return workoutSetupSteps();
     const ftin = cmToFtIn(draft.heightCm);
     const wDisp = draftUnits === "imperial" ? kgToLb(draft.weightKg) : draft.weightKg;
 
     return [
       { title: "You", html: `
         <section class="card">
-          <h2>${isOnboarding ? "Welcome 👋" : "Your profile"}</h2>
-          <p class="hint">${isOnboarding ? "Set your goal, food preferences, and workout routine. You’ll review both plans before you start." : "Edit anything, then Save — your targets recalculate."}</p>
+          <h2>Your profile</h2>
+          <p class="hint">These details help estimate your daily nutrition targets.</p>
           <h3>Units</h3>
           <div class="grid-2">
             <button class="${draftUnits === "imperial" ? "primary" : ""}" data-units="imperial">Imperial (lb, ft/in)</button>
@@ -370,7 +376,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
             `}
           </div>
           <h3>Sex</h3>
-          <p class="hint" style="margin-top:0">Adjusts BMR, your minimum-safe calorie floor, and your essential-fat minimum.</p>
+          <p class="hint" style="margin-top:0">Used to estimate daily calorie needs.</p>
           <div class="grid-2">
             <button class="${draft.sex === "male" ? "primary" : ""}" data-sex="male">Male</button>
             <button class="${draft.sex === "female" ? "primary" : ""}" data-sex="female">Female</button>
@@ -412,20 +418,8 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
 
       { title: "Layout", html: layoutCard() },
 
-      { title: "Review", html: `
-        <section class="card">
-          <h2>Your targets</h2>
-          <div class="macros-grid">
-            <div class="m"><b>${targets.kcal}</b><span>kcal/day</span></div>
-            <div class="m"><b>${targets.p}g</b><span>Protein</span></div>
-            <div class="m"><b>${targets.f}g</b><span>Fat</span></div>
-            <div class="m"><b>${targets.c}g</b><span>Carbs</span></div>
-          </div>
-          <div class="hint" style="margin-top:8px">${targetsHint(draft)}</div>
-          ${isOnboarding ? `<div id="setup-plan-preview">${setupPlanPreview(targets)}</div>` : ""}
-          <p class="hint" style="margin-top:10px">${isOnboarding ? "Tap Start tracking to save both plans." : "Tap Save changes to apply."}</p>
-        </section>` },
     ];
+
   }
 
   function rerender() {
@@ -439,7 +433,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       ["appearance", "Appearance", "Choose your Tempo theme."],
       ["ai", "AI key", "Manage your own OpenAI key."],
     ];
-    const visibleSteps = { workout: [4, 5], meals: [3], profile: [0, 1, 2] }[activeSection] || [];
+    const visibleSteps = { workout: [4, 5], meals: settings.mealSetupPending && !settings.profile ? [0, 1, 3] : [3], profile: [0, 1, 2] }[activeSection] || [];
     root.innerHTML = isOnboarding ? `
       <div class="wiz-head"></div>
       <div class="wizard"><div class="wizard-track">${steps.map(s => `<div class="wizard-step">${s.html}</div>`).join("")}</div></div>
@@ -490,7 +484,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         <button class="ghost" id="wiz-back" ${step === 0 ? "disabled" : ""}>← Back</button>
         ${step < steps.length - 1
           ? `<button class="primary" id="wiz-next">Next →</button>`
-          : `<button class="primary" id="f-save">${isOnboarding ? "Start tracking →" : "Save changes"}</button>`}`;
+          : `<button class="primary" id="f-save">${isOnboarding ? "Use this workout plan" : "Save changes"}</button>`}`;
       nav.querySelector("#wiz-back")?.addEventListener("click", () => setStep(step - 1));
       nav.querySelector("#wiz-next")?.addEventListener("click", () => setStep(step + 1));
       nav.querySelector("#f-save")?.addEventListener("click", doSave);
@@ -500,15 +494,20 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     function setStep(n, scrollTarget) {
       step = Math.max(0, Math.min(steps.length - 1, n));
       furthestStep = Math.max(furthestStep, step);
-      const setupPreview = root.querySelector("#setup-plan-preview");
-      if (setupPreview && step === steps.length - 1) {
-        setupPreview.innerHTML = setupPlanPreview(computeTargets(draft));
-      }
       paintChrome();
       syncStep();
       if (scrollTarget) scrollTarget.scrollIntoView({ block: "start" });
       else window.scrollTo({ top: 0, behavior: "smooth" });
     }
+
+    root.querySelector("#setup-days")?.addEventListener("change", event => {
+      draftPrefs.daysPerWeek = Number(event.target.value);
+      resetSplits();
+      rerender();
+      root.querySelector("#setup-days").focus();
+    });
+    root.querySelector("#setup-experience")?.addEventListener("change", event => { draftPrefs.experience = event.target.value; });
+    root.querySelector("#setup-equipment")?.addEventListener("change", event => { draftPrefs.equipment = [...EQUIPMENT_PRESETS[event.target.value].equipment]; });
 
     // ── Form wiring (all steps are in the DOM at once) ──
     for (const button of root.querySelectorAll("button[data-setup]")) {
@@ -527,15 +526,14 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       const v = parseFloat(e.target.value);
       if (isNaN(v)) return;
       draft.weightKg = draftUnits === "imperial" ? lbToKg(v) : v;
-      rerenderPreview();
     });
     root.querySelector("#f-age")?.addEventListener("input", (e) => {
       const v = parseInt(e.target.value);
-      if (!isNaN(v)) { draft.age = v; rerenderPreview(); }
+      if (!isNaN(v)) { draft.age = v; }
     });
     root.querySelector("#f-cm")?.addEventListener("input", (e) => {
       const v = parseFloat(e.target.value);
-      if (!isNaN(v)) { draft.heightCm = v; rerenderPreview(); }
+      if (!isNaN(v)) { draft.heightCm = v; }
     });
     root.querySelector("#f-ft")?.addEventListener("input", () => updateHeightFromFtIn());
     root.querySelector("#f-in")?.addEventListener("input", () => updateHeightFromFtIn());
@@ -543,7 +541,6 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       const ft = parseInt(root.querySelector("#f-ft")?.value) || 0;
       const inches = parseFloat(root.querySelector("#f-in")?.value) || 0;
       draft.heightCm = ftInToCm(ft, inches);
-      rerenderPreview();
     }
     root.querySelector("#f-wake")?.addEventListener("change", (e) => { draft.wakeTime = e.target.value; });
     root.querySelector("#f-sleep")?.addEventListener("change", (e) => { draft.sleepTime = e.target.value; });
@@ -873,13 +870,14 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     const targets = computeTargets(draft);
     update("settings", (s) => ({
       ...s,
-      ...((isOnboarding || activeSection === "profile") ? {
+      ...((!isOnboarding && (activeSection === "profile" || (activeSection === "meals" && !settings.profile))) ? {
         profile: { ...draft }, units: draftUnits, targets, targetWeightLb: projectTargetWeightLb(draft),
       } : {}),
       ...((isOnboarding || activeSection === "workout" || activeSection === "profile") ? {
         trainingPrefs: draftPrefs, plan: buildDraftPlan(draftSplits),
       } : {}),
-      ...((isOnboarding || activeSection === "meals") ? { foodPrefs: { ...draftFood } } : {}),
+      ...(isOnboarding ? { mealSetupPending: true } : {}),
+      ...(activeSection === "meals" && !isOnboarding ? { foodPrefs: { ...draftFood }, mealSetupPending: false } : {}),
     }));
     toast(isOnboarding ? "All set — let's go." : activeSection === "workout" ? "Workout plan saved." : activeSection === "meals" ? "Meal plan saved." : "Profile updated.");
     navigate(isOnboarding ? requestedTab === "settings" ? "today" : requestedTab : activeSection === "workout" ? "workout" : activeSection === "meals" ? "meals" : "settings");
@@ -892,21 +890,6 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     if (!ok) return;
     clearStorage();
     location.reload();
-  }
-
-  // Lightweight live preview of the Review step without a full rerender.
-  function rerenderPreview() {
-    const targets = computeTargets(draft);
-    const grid = root.querySelector(".macros-grid");
-    if (!grid) return;
-    grid.innerHTML = `
-      <div class="m"><b>${targets.kcal}</b><span>kcal/day</span></div>
-      <div class="m"><b>${targets.p}g</b><span>Protein</span></div>
-      <div class="m"><b>${targets.f}g</b><span>Fat</span></div>
-      <div class="m"><b>${targets.c}g</b><span>Carbs</span></div>
-    `;
-    const hint = grid.nextElementSibling;
-    if (hint) hint.textContent = targetsHint(draft);
   }
 
   rerender();
@@ -925,14 +908,6 @@ function validate(p) {
   if (!["male", "female"].includes(p.sex)) return "Pick a sex (for BMR formula).";
   if (!p.activity || !p.goal) return "Pick activity level and goal.";
   return null;
-}
-
-function targetsHint(p) {
-  const delta = GOAL[p.goal].kcalDelta;
-  const sx = SEX[p.sex] || SEX.male;
-  let s = `BMR: ${bmr(p)} kcal · TDEE: ${tdee(p)} kcal · ${delta >= 0 ? "+" : ""}${delta} for goal`;
-  if (tdee(p) + delta < sx.kcalFloor) s += ` · floored to ${sx.kcalFloor} (${p.sex} minimum)`;
-  return s;
 }
 
 function goalDesc(k) {

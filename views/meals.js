@@ -1,7 +1,7 @@
 import { navigate } from "../app.js";
 import { getMeals } from "../lib/meals.js";
 import { getActivePlan } from "../lib/plan.js";
-import { load, loadApiKey, update, todayISO } from "../storage.js";
+import { load, loadApiKey, logWater, update, todayISO } from "../storage.js";
 import { waterTargetMl, mlToOz, mealTimes, fmtTime12, toMin, pct, barClass } from "../lib/calc.js";
 import { dateNavHtml, wireDateNav } from "../lib/date-nav.js";
 import { esc } from "../lib/html.js";
@@ -15,6 +15,13 @@ export function renderMeals(root) {
   let logOpen = false;
   let logMode = "";
   const settings = load("settings");
+  if (settings.mealSetupPending) {
+    root.innerHTML = `<section class="card"><h2>Set up your meals</h2>
+      <p>Choose foods you like and anything you avoid.</p>
+      <button class="primary today-action" id="setup-meals">Set up meals</button></section>`;
+    root.querySelector("#setup-meals").addEventListener("click", () => navigate("settings", { section: "meals" }));
+    return;
+  }
   const targets = settings.targets;
   const profile = settings.profile;
   const metric = settings.units === "metric";
@@ -85,6 +92,34 @@ export function renderMeals(root) {
     root.innerHTML = `
       ${dateNavHtml(viewedDate)}
       <section class="card">
+        <div class="spread">
+          <h2 style="margin:0">Meal plan</h2>
+          ${generated ? `<button class="ghost small" id="shuffle-meals" style="min-height:32px;padding:4px 10px">🎲 ${settings.foodPrefs.weekly ? "Shuffle week" : "Shuffle"}</button>` : ""}
+        </div>
+        <div class="hint">Times based on wake ${fmtTime12(profile?.wakeTime || "06:30")} / bed ${fmtTime12(profile?.sleepTime || "22:30")}. Last bite by <b>${cutoff}</b>. Adjust in Settings.</div>
+        ${generated ? `<div class="hint">Built from your food preferences to hit your macros — portions are estimates, tweak to taste.</div>` : ""}
+        <ul class="checklist">
+          ${MEALS.map(m => {
+            const done = state.checked.includes(m.id);
+            const t = times[m.id];
+            const isNext = !done && t && Math.abs(toMin(t) - nowMin) < 90 && toMin(t) >= nowMin - 30;
+            return `
+              <li class="${done ? "done" : ""} ${isNext ? "next" : ""}">
+                <label class="meal-check"><input type="checkbox" data-id="${m.id}" aria-label="Mark ${esc(m.name)} as eaten" ${done ? "checked" : ""} />
+                  <span>${done ? "Eaten" : "Mark as eaten"}</span></label>
+                <div style="flex:1">
+                  <div class="meal-name">${m.name} ${t ? `<span class="meal-time">${fmtTime12(t)}</span>` : ""}</div>
+                  <div class="meal-macros">${m.items}</div>
+                  <div class="meal-macros">${m.kcal} kcal · ${m.p}g protein · ${m.f}g fat · ${m.c}g carbs</div>
+                </div>
+              </li>
+            `;
+          }).join("")}
+        </ul>
+        <button type="button" class="today-action" id="edit-meal-plan">Update meal plan</button>
+      </section>
+
+      <section class="card">
         <div class="spread"><h2 style="margin:0">${isToday ? "Today" : "Day view"}</h2><span class="muted">${viewedDate}</span></div>
         <div style="margin-top:10px">
           <div class="spread small"><span>Calories</span><span><b>${t.kcal}</b> / ${targets.kcal}</span></div>
@@ -132,40 +167,13 @@ export function renderMeals(root) {
               <span class="water-tile-val">+${metric ? "750" : "24"}</span>
               <span class="water-tile-sub">Shaker</span>
             </button>
-            <button class="water-tile undo-tile" type="button" id="w-minus" title="Undo 1 glass">
+            <button class="water-tile undo-tile" type="button" id="w-minus" title="Undo last drink" ${state.lastWaterMl ? "" : "disabled"}>
               <span class="water-tile-icon">↩️</span>
-              <span class="water-tile-val">−${metric ? "250" : "8"}</span>
+              <span class="water-tile-val">${state.lastWaterMl ? "−" + showWater(state.lastWaterMl) : "—"}</span>
               <span class="water-tile-sub">Undo</span>
             </button>
           </div>
         </div>
-      </section>
-
-      <section class="card">
-        <div class="spread">
-          <h2 style="margin:0">Meal plan</h2>
-          ${generated ? `<button class="ghost small" id="shuffle-meals" style="min-height:32px;padding:4px 10px">🎲 ${settings.foodPrefs.weekly ? "Shuffle week" : "Shuffle"}</button>` : ""}
-        </div>
-        <div class="hint">Times based on wake ${fmtTime12(profile?.wakeTime || "06:30")} / bed ${fmtTime12(profile?.sleepTime || "22:30")}. Last bite by <b>${cutoff}</b>. Adjust in Settings.</div>
-        ${generated ? `<div class="hint">Built from your food preferences to hit your macros — portions are estimates, tweak to taste.</div>` : ""}
-        <ul class="checklist">
-          ${MEALS.map(m => {
-            const done = state.checked.includes(m.id);
-            const t = times[m.id];
-            const isNext = !done && t && Math.abs(toMin(t) - nowMin) < 90 && toMin(t) >= nowMin - 30;
-            return `
-              <li class="${done ? "done" : ""} ${isNext ? "next" : ""}">
-                <input type="checkbox" data-id="${m.id}" ${done ? "checked" : ""} />
-                <div style="flex:1">
-                  <div class="meal-name">${m.name} ${t ? `<span class="meal-time">${fmtTime12(t)}</span>` : ""}</div>
-                  <div class="meal-macros">${m.items}</div>
-                  <div class="meal-macros">${m.kcal} kcal · ${m.p}g protein · ${m.f}g fat · ${m.c}g carbs</div>
-                </div>
-              </li>
-            `;
-          }).join("")}
-        </ul>
-        <button type="button" class="today-action" id="edit-meal-plan">Update meal plan</button>
       </section>
 
       <section class="card">
@@ -189,7 +197,7 @@ export function renderMeals(root) {
               </tbody>
             </table>
           `}
-        <button type="button" class="primary today-action" id="log-food" aria-expanded="false" aria-controls="food-log-options">Log food</button>
+        <button type="button" class="primary today-action" id="log-food" aria-expanded="false" aria-controls="food-log-options">Log other food</button>
         <div id="food-log-options" hidden>
           <div class="log-methods" role="group" aria-label="How to log food">
             ${[["describe", "Describe it"], ["photo", "Take a photo"], ["saved", "Saved foods"], ["manual", "Enter manually"]].map(([id, label]) => `<button type="button" data-log-mode="${id}" aria-pressed="false">${label}</button>`).join("")}
@@ -227,7 +235,7 @@ export function renderMeals(root) {
       root.querySelector("#food-log-options").hidden = !logOpen;
       const toggle = root.querySelector("#log-food");
       toggle.setAttribute("aria-expanded", String(logOpen));
-      toggle.textContent = logOpen ? "Close food entry" : "Log food";
+      toggle.textContent = logOpen ? "Close food entry" : "Log other food";
       for (const panel of root.querySelectorAll("[data-log-panel]")) {
         panel.hidden = !panel.dataset.logPanel.split(" ").includes(logMode);
       }
@@ -255,10 +263,8 @@ export function renderMeals(root) {
       render();
     });
 
-    const bumpWater = (deltaMl) => {
-      const s = getState();
-      s.waterMl = Math.max(0, s.waterMl + deltaMl);
-      setState(s);
+    const bumpWater = (amount) => {
+      const deltaMl = logWater(viewedDate, amount);
       const absAmount = showWater(Math.abs(deltaMl));
       const msg = deltaMl > 0 ? `+${absAmount} ${waterUnit} water logged 💧` : `−${absAmount} ${waterUnit} removed`;
       toast(msg);
@@ -267,7 +273,7 @@ export function renderMeals(root) {
     root.querySelector("#w-cup")?.addEventListener("click", () => bumpWater(metric ? 250 : 237));
     root.querySelector("#w-bottle")?.addEventListener("click", () => bumpWater(metric ? 500 : 473));
     root.querySelector("#w-shaker")?.addEventListener("click", () => bumpWater(metric ? 750 : 710));
-    root.querySelector("#w-minus")?.addEventListener("click", () => bumpWater(metric ? -250 : -237));
+    root.querySelector("#w-minus")?.addEventListener("click", () => bumpWater(0));
 
     root.querySelector("#shuffle-meals")?.addEventListener("click", () => {
       const seed = (settings.foodPrefs.seed || 0) + 1;

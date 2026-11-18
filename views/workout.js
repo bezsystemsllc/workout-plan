@@ -1,6 +1,6 @@
 import { getActivePlan, alternativesFor, prescribeExercise, dayLabelFor, DEFAULT_PREFS, exercisesForPlan } from "../lib/plan.js";
 import { EXERCISES } from "../data/exercises.js";
-import { iconFor, demoLink } from "../data/exercise-icons.js";
+import { iconFor, exerciseDemoHtml } from "../data/exercise-icons.js";
 import { coachNoteForExercise, latestCoachReview } from "../lib/coach.js";
 import { buildProgressionHistory, progressionFor, sessionsForDay } from "../lib/progression.js";
 import { confirmAction, toast } from "../lib/modal.js";
@@ -49,6 +49,7 @@ function renderPickerView(root, dateKey, split, rerender, plan) {
     <section class="card">
       <h2>${esc(split.label)}</h2>
       <p class="muted">${esc(split.type === "rest" ? "Rest day — recovery." : (split.detail || "Conditioning day."))} Want to log a lift anyway?</p>
+      ${split.type === "cardio" ? exerciseDemoHtml(split.label) : ""}
       <div class="grid-2" style="margin-top:8px">
         ${dayKeys.map(k => `<button data-pick="${esc(k)}">${esc(dayLabelFor(k))}</button>`).join("")}
       </div>
@@ -87,7 +88,7 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
 
   const metaByName = Object.fromEntries(template.map(m => [m.name, hydrateExerciseMeta(m)]));
   const session = isLogged
-    ? existing
+    ? structuredClone(existing)
     : { day, exercises: blankSession(template) };
 
   const items = session.exercises.map((logged, ei) => {
@@ -141,25 +142,24 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
           coachNoteForExercise(coachReview, it.meta.name),
           plan.meta,
         )).join("")}
+        ${canCustomize ? `
+          <section class="card add-ex">
+            <label>Add an exercise</label>
+            <div class="row" style="gap:8px">
+              <select id="add-ex-select" style="flex:1">
+                ${pool.map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join("")}
+              </select>
+              <button class="ghost" id="add-ex-btn">Add</button>
+            </div>
+          </section>
+        ` : ""}
+
+        <section class="card save-bar">
+          <button class="primary" id="finish" style="width:100%">Save workout edits</button>
+          ${isLogged ? `<button class="danger ghost" id="clear" style="width:100%;margin-top:8px">Discard this session</button>` : ""}
+        </section>
       </div>
     </details>
-
-    ${canCustomize ? `
-      <section class="card add-ex">
-        <label>Add an exercise</label>
-        <div class="row" style="gap:8px">
-          <select id="add-ex-select" style="flex:1">
-            ${pool.map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join("")}
-          </select>
-          <button class="ghost" id="add-ex-btn">Add</button>
-        </div>
-      </section>
-    ` : ""}
-
-    <section class="card save-bar">
-      <button class="primary" id="finish" style="width:100%">${isLogged ? "Update session" : "Save session"}</button>
-      ${isLogged ? `<button class="danger ghost" id="clear" style="width:100%;margin-top:8px">Discard this session</button>` : ""}
-    </section>
   `;
 
   for (const inp of root.querySelectorAll("input[data-ei]")) {
@@ -179,9 +179,9 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
 
     session.exercises[ei].sets[si].w = loadEl.value;
     session.exercises[ei].sets[si].r = repsEl.value;
-    if (!String(repsEl.value).trim()) {
-      toast("Enter reps or time before moving on");
-      repsEl.focus();
+    if (!repsEl.value || Number(repsEl.value) <= 0 || !repsEl.checkValidity() || !loadEl.checkValidity()) {
+      toast("Check the set values before logging");
+      (loadEl.checkValidity() ? repsEl : loadEl).focus();
       return;
     }
 
@@ -200,7 +200,7 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
     }
 
     rerender();
-    if (!done) mountTimer(activeSet.meta.rest || 90, { exerciseName: `Rest: ${activeSet.meta.name}` });
+    if (!done) mountTimer(activeSet.meta.rest || 90, { exerciseName: `Set saved · Rest after ${activeSet.meta.name}` });
   });
 
   root.querySelector("#open-plate-calc")?.addEventListener("click", () => {
@@ -357,21 +357,19 @@ function renderGuidedSet(activeSet, items, lastSession, day, allWorkouts, progre
   const targetR = prog.target?.r ?? "";
   const lastLbl = lastSet && (lastSet.w || lastSet.r) ? `${lastSet.w || "-"} x ${lastSet.r || "-"}` : "-";
   const hasNext = !!nextSetAfter(items, ei, si);
-  const isBarbell = (meta.equip || []).some(e => ["barbell", "ezbar"].includes(e)) ||
-    /barbell|bench press|squat|deadlift|overhead press|row/i.test(meta.name);
+  const isBarbell = usesBarbell(meta);
 
   return `
     <section class="card guided-set">
       <div class="guided-top">
-        <div class="ex-title">
-          <span class="ex-icon-wrap">${iconFor(meta.name, meta.category)}</span>
-          <div>
-            <div class="muted small">Set ${esc(si + 1)} of ${esc(logged.sets.length)}</div>
-            <div class="ex-name">${esc(meta.name)}</div>
-          </div>
-        </div>
+        <span class="ex-icon-wrap">${iconFor(meta.name, meta.category)}</span>
+        ${exerciseDemoHtml(meta.name)}
+      </div>
+      <div class="spread">
+        <span class="muted small">Set ${esc(si + 1)} of ${esc(logged.sets.length)}</span>
         <span class="guided-progress">${esc(complete)}/${esc(total)}</span>
       </div>
+      <div class="ex-name">${esc(meta.name)}</div>
       ${prog.text ? `<div class="overload-hint hint-${esc(prog.kind)}">${PROG_ICON[prog.kind] || "•"} ${esc(prog.text)}</div>` : ""}
       <div class="guided-meta">
         <div><span>Target</span><b>${esc(meta.reps)}</b></div>
@@ -380,18 +378,16 @@ function renderGuidedSet(activeSet, items, lastSession, day, allWorkouts, progre
       </div>
       <div class="guided-inputs">
         <label>
-          <div class="spread">
-            <span>${esc(loadInput.label)}</span>
-            ${isBarbell ? `<button class="ghost link-btn" type="button" id="open-plate-calc" style="padding:0 4px;font-size:11px;min-height:22px;color:var(--accent);background:transparent">🧮 Plates & Warmup</button>` : ""}
-          </div>
+          <span>${esc(loadInput.label)}</span>
           <input type="${loadInput.type}" inputmode="${loadInput.inputmode}" ${loadInput.type === "number" ? 'step="0.5" min="0"' : ""} data-guide-field="w" data-ei="${ei}" data-si="${si}" data-field="w" value="${esc(current.w)}" placeholder="${esc(targetW || lastSet?.w || "")}" />
         </label>
         <label>
-          <span>Reps/time</span>
-          <input type="number" inputmode="numeric" min="0" data-guide-field="r" data-ei="${ei}" data-si="${si}" data-field="r" value="${esc(current.r)}" placeholder="${esc(targetR || lastSet?.r || "")}" />
+          <span>${meta.prog === "time" || /\d\s*s\b/.test(meta.reps) ? "Hold time (seconds)" : "Reps"}</span>
+          <input type="number" inputmode="numeric" min="1" data-guide-field="r" data-ei="${ei}" data-si="${si}" data-field="r" value="${esc(current.r)}" placeholder="${esc(targetR || lastSet?.r || "")}" />
         </label>
       </div>
-      <button class="primary guided-next" data-complete-set>${hasNext ? "Next set" : "Finish workout"}</button>
+      ${isBarbell ? `<button class="ghost small" type="button" id="open-plate-calc">Plates &amp; warmup</button>` : ""}
+      <button class="primary guided-next" data-complete-set>${hasNext ? "Log set" : "Log final set"}</button>
     </section>
   `;
 }
@@ -407,8 +403,7 @@ function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, progressionH
   const tR = prog.target?.r ?? "";
   const loadInput = loadInputFor(meta, starterContext?.units);
   const alts = canCustomize ? alternativesFor(meta, equipment, preferences) : [];
-  const isBarbell = (meta.equip || []).some(e => ["barbell", "ezbar"].includes(e)) ||
-    /barbell|bench press|squat|deadlift|overhead press|row/i.test(meta.name);
+  const isBarbell = usesBarbell(meta);
   const allTimePRs = getAllTimePRs(allWorkouts);
   const exPR = allTimePRs[meta.name];
 
@@ -419,7 +414,7 @@ function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, progressionH
           <span class="ex-icon-wrap">${iconFor(meta.name, meta.category)}</span>
           <div>
             <div class="ex-name">${esc(meta.name)}</div>
-            <a class="ex-demo" href="${esc(demoLink(meta.name))}" target="_blank" rel="noopener noreferrer">▶ Watch demo</a>
+            ${exerciseDemoHtml(meta.name)}
           </div>
         </div>
         <div class="ex-head-right">
@@ -514,6 +509,11 @@ function hydrateExerciseMeta(ex) {
     compound: ex.compound ?? match.compound,
     reps: ex.reps && ex.reps !== "—" ? ex.reps : match.reps,
   };
+}
+
+function usesBarbell(meta) {
+  if (meta.equip?.length) return meta.equip.some(e => e === "barbell" || e === "ezbar");
+  return /\b(?:barbell|ez[- ]?bar)\b/i.test(meta.name);
 }
 
 function loadInputFor(meta, units) {

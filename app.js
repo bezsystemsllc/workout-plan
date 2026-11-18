@@ -37,7 +37,7 @@ let routeTimer = null;
 
 function route() {
   const settings = load("settings");
-  const needsOnboarding = !settings.profile;
+  const needsOnboarding = !settings.profile && !(settings.mealSetupPending && settings.plan);
   const requestedTab = currentTab();
   const tab = needsOnboarding ? "settings" : requestedTab;
   const def = ROUTES[tab];
