@@ -77,12 +77,14 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
   const settings = load("settings");
   const goal = plan.meta?.goal || settings.profile?.goal || "fat_loss";
   const starterContext = {
+    familiarLifts: settings.familiarLifts,
+    dateKey,
     profile: settings.profile,
     experience: plan.meta?.experience || settings.trainingPrefs?.experience || "beginner",
     units: settings.units || "imperial",
   };
-  const daySessions = sessionsForDay(day, allWorkouts);
-  const lastSession = daySessions.find(s => s.date !== dateKey) || null;
+  const daySessions = sessionsForDay(day, allWorkouts).filter(s => s.date < dateKey);
+  const lastSession = daySessions[0] || null;
   const progressionHistory = buildProgressionHistory(day, allWorkouts, daySessions);
   const coachReview = latestCoachReview();
 
@@ -181,7 +183,8 @@ function renderSessionView(root, dateKey, day, allWorkouts, rerender, split, pla
   batchToggle?.addEventListener("click", () => {
     batchOptions.hidden = !batchOptions.hidden;
     batchToggle.setAttribute("aria-expanded", String(!batchOptions.hidden));
-    batchToggle.textContent = batchOptions.hidden ? "Multiple sets" : "Cancel";
+    batchToggle.textContent = batchOptions.hidden ? "Log all sets" : "Cancel";
+    if (!batchOptions.hidden) batchCount.selectedIndex = batchCount.options.length - 1;
     refreshLogLabel();
     if (!batchOptions.hidden) batchCount.focus();
   });
@@ -384,6 +387,9 @@ function renderGuidedSet(activeSet, items, lastSession, day, allWorkouts, progre
   const prog = progressionFor(meta, day, allWorkouts, progressionHistory, starterContext);
   const loadInput = loadInputFor(meta, starterContext?.units);
   const current = logged.sets[si] || { w: "", r: "" };
+  const previous = logged.sets[si - 1];
+  const weight = current.w === "" ? previous?.w ?? (prog.confirmed ? prog.target.w : "") : current.w;
+  const reps = current.r === "" ? previous?.r ?? (prog.confirmed ? prog.target.r : "") : current.r;
   const targetW = prog.target?.w ?? "";
   const targetR = prog.target?.r ?? "";
   const lastLbl = lastSet && (lastSet.w || lastSet.r) ? `${lastSet.w || "-"} x ${lastSet.r || "-"}` : "-";
@@ -401,7 +407,7 @@ function renderGuidedSet(activeSet, items, lastSession, day, allWorkouts, progre
         <span class="guided-progress">${esc(complete)}/${esc(total)}</span>
       </div>
       <div class="ex-name">${esc(meta.name)}</div>
-      ${prog.text ? `<div class="overload-hint hint-${esc(prog.kind)}">${PROG_ICON[prog.kind] || "•"} ${esc(prog.text)}</div>` : ""}
+      ${prog.text && !(previous && prog.kind === "new") ? `<div class="overload-hint hint-${esc(prog.kind)}">${PROG_ICON[prog.kind] || "•"} ${esc(prog.text)}</div>` : ""}
       <div class="guided-meta">
         <div><span>Target</span><b>${esc(meta.reps)}</b></div>
         <div><span>Last</span><b>${esc(lastLbl)}</b></div>
@@ -418,16 +424,16 @@ function renderGuidedSet(activeSet, items, lastSession, day, allWorkouts, progre
       <div class="guided-inputs">
         <label>
           <span>${esc(loadInput.label)}</span>
-          <input type="${loadInput.type}" inputmode="${loadInput.inputmode}" ${loadInput.type === "number" ? 'step="0.5" min="0"' : ""} data-guide-field="w" data-ei="${ei}" data-si="${si}" data-field="w" value="${esc(current.w)}" placeholder="${esc(targetW || lastSet?.w || "")}" />
+          <input type="${loadInput.type}" inputmode="${loadInput.inputmode}" ${loadInput.type === "number" ? 'step="any" min="0"' : ""} data-guide-field="w" data-ei="${ei}" data-si="${si}" data-field="w" value="${esc(weight)}" placeholder="${esc(targetW || lastSet?.w || "")}" />
         </label>
         <label>
           <span>${meta.prog === "time" || /\d\s*s\b/.test(meta.reps) ? "Hold time (seconds)" : "Reps"}</span>
-          <input type="number" inputmode="numeric" min="1" data-guide-field="r" data-ei="${ei}" data-si="${si}" data-field="r" value="${esc(current.r)}" placeholder="${esc(targetR || lastSet?.r || "")}" />
+          <input type="number" inputmode="numeric" min="1" data-guide-field="r" data-ei="${ei}" data-si="${si}" data-field="r" value="${esc(reps)}" placeholder="${esc(targetR || lastSet?.r || "")}" />
         </label>
       </div>
       ${isBarbell ? `<button class="ghost small" type="button" id="open-plate-calc">Plates &amp; warmup</button>` : ""}
       <button class="primary guided-next" data-complete-set>${hasNext ? "Log set" : "Log final set"}</button>
-      <button class="today-action" type="button" data-batch-toggle aria-controls="batch-options" aria-expanded="false">Multiple sets</button>
+      <button class="today-action" type="button" data-batch-toggle aria-controls="batch-options" aria-expanded="false">Log all sets</button>
     </section>
   `;
 }
@@ -487,7 +493,7 @@ function renderExercise(meta, logged, lastEx, ei, day, allWorkouts, progressionH
         return `
           <div class="set-row">
             <span class="idx">${si + 1} ${isPR ? `<span class="pr-badge" title="Lifetime PR">🏆</span>` : ""}</span>
-            <input type="${loadInput.type}" inputmode="${loadInput.inputmode}" ${loadInput.type === "number" ? 'step="0.5" min="0"' : ""} data-ei="${ei}" data-si="${si}" data-field="w" value="${esc(s.w)}" placeholder="${esc(tW || l?.w || "")}" />
+            <input type="${loadInput.type}" inputmode="${loadInput.inputmode}" ${loadInput.type === "number" ? 'step="any" min="0"' : ""} data-ei="${ei}" data-si="${si}" data-field="w" value="${esc(s.w)}" placeholder="${esc(tW || l?.w || "")}" />
             <input type="number" inputmode="numeric" min="0" data-ei="${ei}" data-si="${si}" data-field="r" value="${esc(s.r)}" placeholder="${esc(tR || l?.r || "")}" />
             <span class="last">${esc(lastLbl)}</span>
           </div>
@@ -560,7 +566,8 @@ function loadInputFor(meta, units) {
   const equip = meta.equip || [];
   if (equip.includes("band")) return { label: "Band", type: "text", inputmode: "text" };
   if (equip.includes("bodyweight") && meta.prog !== "weight") return { label: "Load", type: "text", inputmode: "text" };
-  return { label: `Weight (${units === "metric" ? "kg" : "lb"})`, type: "number", inputmode: "decimal" };
+  const weightLabel = equip.includes("dumbbell") ? "Per dumbbell" : "Weight";
+  return { label: `${weightLabel} (${units === "metric" ? "kg" : "lb"})`, type: "number", inputmode: "decimal" };
 }
 
 function findActiveSet(items) {

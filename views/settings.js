@@ -7,12 +7,13 @@ import {
   generatePlan, buildSplits, DEFAULT_PREFS, STYLE_OPTIONS, TRAINING_TYPES, EXPERIENCE,
   dayLabelFor, dayFromToken, tokenFromDay, VARIANT_SUFFIX,
 } from "../lib/plan.js";
-import { EQUIPMENT, EQUIPMENT_PRESETS } from "../data/exercises.js";
+import { EQUIPMENT, EQUIPMENT_PRESETS, EXERCISES } from "../data/exercises.js";
 import { DIETS, FOODS, PROTEIN_GROUPS, CARB_GROUPS, ALLERGENS, fitsDiet, proteinGroupsForDiet } from "../data/foods.js";
 import { DEFAULT_FOOD_PREFS, getMealWeek } from "../lib/meals.js";
 import { notify, confirmAction, confirmForm, toast } from "../lib/modal.js";
 import { esc } from "../lib/html.js";
 import { DEFAULT_OPENAI_MODEL } from "../lib/openai.js";
+import { readFamiliarLifts, normalizeFamiliarLifts } from "../lib/familiar-lifts.js";
 import { matchWorkoutRoutine } from "../lib/workout-ai.js";
 import { isUsdaMatch, searchUsdaFoods } from "../lib/usda-foods.js";
 import { suggestFoodPreferences } from "../lib/food-preferences-ai.js";
@@ -57,6 +58,26 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
   let routineMatch = null;
   let foodDescription = "";
   let foodDraftApplied = false;
+  let familiarLifts = settings.familiarLifts || [];
+  let liftDescription = "";
+  let liftsOpen = false;
+
+  function liftSummary(lift) {
+    const exercise = EXERCISES.find(ex => ex.id === lift.id);
+    return `${esc(exercise.name)} · ${lift.weight} ${lift.unit}${exercise.equip.includes("dumbbell") ? " per dumbbell" : ""}${lift.reps ? ` × ${lift.reps} reps` : ""}`;
+  }
+
+  function familiarLiftsHtml() {
+    return `<details id="familiar-lifts" ${liftsOpen ? "open" : ""}>
+      <summary>Add familiar lifts (optional)</summary>
+      ${familiarLifts.length ? `<ul>${familiarLifts.map(lift => `<li>${liftSummary(lift)}</li>`).join("")}</ul>` : ""}
+      ${loadApiKey() ? `<label for="lift-description">What weights do you already use?</label>
+        <textarea id="lift-description" rows="2" maxlength="800" placeholder="Dumbbell Romanian deadlift: 25 lb in each hand for 8 reps.">${esc(liftDescription)}</textarea>
+        <button type="button" id="read-lifts">Review weights with AI</button>
+        <p class="hint" id="lift-status" role="status"></p>` : setupKeyForm("lifts")}
+    </details>`;
+  }
+
   const planSeed = settings.plan?.meta?.seed ?? Math.floor(Math.random() * 1000000);
 
   function draftTargets() {
@@ -119,7 +140,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
   function setupKeyForm(section) {
     return `
       <form data-setup-key="${section}">
-        <p class="hint">Enter your own OpenAI key to continue with AI, or choose Use presets.</p>
+        <p class="hint">Enter your own OpenAI key to use this optional AI feature.</p>
         <label for="${section}-setup-key">OpenAI API key</label>
         <input id="${section}-setup-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…" />
         <button type="submit" class="primary">Save key and continue</button>
@@ -190,6 +211,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
           </div>`}
         ${settings.plan && equipmentChanged() ? `<p class="hint">Saving rebuilds your workouts and resets exercise swaps. Your weekly layout and workout logs are kept.</p>` : ""}
         ` : ""}
+        ${familiarLiftsHtml()}
       </section>
     `;
   }
@@ -338,6 +360,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         <label for="setup-equipment">Available equipment</label>
         <select id="setup-equipment">${Object.entries(EQUIPMENT_PRESETS).map(([id,preset]) => `<option value="${id}" ${matchingPreset() === id ? "selected" : ""}>${esc(preset.label)}</option>`).join("")}</select>
         <p class="hint">Workout days: ${WEEKDAYS.filter(([day]) => draftSplits[day]?.type === "lift").map(([,label]) => label).join(", ")}. You can change these later.</p>
+        ${familiarLiftsHtml()}
       </section>` },
     ];
   }
@@ -499,6 +522,37 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       if (scrollTarget) scrollTarget.scrollIntoView({ block: "start" });
       else window.scrollTo({ top: 0, behavior: "smooth" });
     }
+
+    const liftDetails = root.querySelector("#familiar-lifts");
+    liftDetails?.addEventListener("toggle", () => { if (liftDetails.isConnected) liftsOpen = liftDetails.open; });
+    const liftInput = root.querySelector("#lift-description");
+    liftInput?.addEventListener("input", () => { liftDescription = liftInput.value; });
+    root.querySelector("#read-lifts")?.addEventListener("click", async event => {
+      if (!liftDescription.trim()) { liftInput.focus(); return; }
+      const button = event.currentTarget;
+      const status = root.querySelector("#lift-status");
+      button.disabled = true;
+      liftInput.readOnly = true;
+      status.textContent = "Reading your weights…";
+      try {
+        const lifts = await readFamiliarLifts(loadApiKey(), liftDescription);
+        if (!button.isConnected) return;
+        status.textContent = "";
+        const confirmed = await confirmForm(`<ul>${lifts.map(lift => `<li>${liftSummary(lift)}</li>`).join("")}</ul>
+          <p>Use these starting weights for exercises in your plan?</p>`, { title: "Check your weights", okLabel: "Use these weights", cancelLabel: "Edit description" });
+        if (confirmed && button.isConnected) {
+          familiarLifts = normalizeFamiliarLifts([...familiarLifts, ...lifts]);
+          liftDescription = "";
+          liftsOpen = true;
+          rerender();
+        }
+      } catch (error) {
+        status.textContent = error.message;
+      } finally {
+        button.disabled = false;
+        liftInput.readOnly = false;
+      }
+    });
 
     root.querySelector("#setup-days")?.addEventListener("change", event => {
       draftPrefs.daysPerWeek = Number(event.target.value);
@@ -796,7 +850,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     for (const form of root.querySelectorAll("[data-setup-key]")) {
       form.addEventListener("submit", event => {
         event.preventDefault();
-        const nextField = form.dataset.setupKey === "workout" ? "#workout-routine" : "#food-description";
+        const nextField = { workout: "#workout-routine", food: "#food-description", lifts: "#lift-description" }[form.dataset.setupKey];
         saveKeyFrom(form.querySelector("input"), nextField);
       });
     }
@@ -826,9 +880,9 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     syncStep();
   }
 
-  const initialDraft = JSON.stringify([draft, draftUnits, draftPrefs, draftSplits, draftFood]);
+  const initialDraft = JSON.stringify([draft, draftUnits, draftPrefs, draftSplits, draftFood, familiarLifts]);
   function hasDraftChanges() {
-    return JSON.stringify([draft, draftUnits, draftPrefs, draftSplits, draftFood]) !== initialDraft;
+    return JSON.stringify([draft, draftUnits, draftPrefs, draftSplits, draftFood, familiarLifts]) !== initialDraft;
   }
 
   function openSection(next) {
@@ -876,6 +930,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       ...((isOnboarding || activeSection === "workout" || activeSection === "profile") ? {
         trainingPrefs: draftPrefs, plan: buildDraftPlan(draftSplits),
       } : {}),
+      ...(isOnboarding || activeSection === "workout" ? { familiarLifts } : {}),
       ...(isOnboarding ? { mealSetupPending: true } : {}),
       ...(activeSection === "meals" && !isOnboarding ? { foodPrefs: { ...draftFood }, mealSetupPending: false } : {}),
     }));

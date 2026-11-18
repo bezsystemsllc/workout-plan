@@ -1,3 +1,4 @@
+import { normalizeFamiliarLifts } from "./lib/familiar-lifts.js";
 import { STYLE_OPTIONS, TRAINING_TYPES } from "./data/training.js";
 import { FOODS } from "./data/foods.js";
 import { isUsdaMatch } from "./lib/usda-foods.js";
@@ -249,6 +250,7 @@ function normalizeSettings(value, strict) {
   if (!isPlainObject(value)) return structuredClone(DEFAULT_STATE.settings);
   const out = structuredClone(DEFAULT_STATE.settings);
   out.units = value.units === "metric" ? "metric" : "imperial";
+  if (Array.isArray(value.familiarLifts)) out.familiarLifts = normalizeFamiliarLifts(value.familiarLifts);
   if (value.mealSetupPending === true) out.mealSetupPending = true;
   out.profile = normalizeProfile(value.profile, strict);
   out.targets = normalizeTargets(value.targets);
