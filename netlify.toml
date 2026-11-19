@@ -1,8 +1,11 @@
 [build]
-  publish = "."
+  command = "node scripts/check-runtime.mjs && python3 scripts/public_site.py"
+  publish = "dist"
 
-# No build step needed — pure static.
-# Exclude dev-only files from the deploy bundle.
+[build.environment]
+  NODE_VERSION = "24"
+
+
 [build.processing]
   skip_processing = true
 

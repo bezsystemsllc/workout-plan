@@ -1,5 +1,8 @@
 {
   "name": "workout-plan",
   "type": "module",
-  "private": true
+  "private": true,
+  "engines": {
+    "node": "^22.23.5 || ^24.22.3 || ^26.13.1"
+  }
 }

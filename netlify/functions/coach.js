@@ -1,12 +1,7 @@
 import { runCoach } from "../../lib/server/coach-handler.js";
 
 export const handler = async (event) => {
-  const forwarded = event.headers["x-forwarded-for"] || "";
-  const ip = event.headers["x-nf-client-connection-ip"]
-    || event.headers["client-ip"]
-    || event.headers["x-real-ip"]
-    || (forwarded ? forwarded.split(",")[0].trim() : "")
-    || "unknown";
+  const ip = event.headers["x-nf-client-connection-ip"] || "unknown";
 
   return await runCoach({
     method: event.httpMethod,

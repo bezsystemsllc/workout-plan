@@ -1,9 +1,8 @@
 import { runCoach } from "../lib/server/coach-handler.js";
 
 export default async function handler(req, res) {
-  const forwarded = req.headers["x-forwarded-for"] || "";
-  const ip = req.headers["x-real-ip"] 
-    || (forwarded ? forwarded.split(",")[0].trim() : "")
+  const forwarded = req.headers["x-vercel-forwarded-for"] || "";
+  const ip = (forwarded ? forwarded.split(",")[0].trim() : "")
     || "unknown";
 
   let rawBody = "";

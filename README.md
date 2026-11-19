@@ -9,7 +9,7 @@ Tempo is a mobile-first **PWA** with **no frameworks and no accounts**. Core tra
 - **🧠 Dynamic workout plans** — generates a weekly split and exercise selection from your goal, days per week, experience level, and the equipment you actually own (dumbbells, kettlebells, barbell + rack, machines, cables, pull-up bar, bands, bench, treadmill, or just bodyweight). When a split day repeats in your week it becomes distinct A/B (and C) sessions with different exercises, selection is seeded per user so no two plans look alike, and **Shuffle exercises** rebuilds the whole selection anytime.
 - **📈 Auto-progression** — reads your logged history and prescribes the next session's load and reps using double progression, with deload detection and rep/time variants for bands and planks.
 - **🔁 Fully customizable** — swap any exercise for a same-pattern alternative, add/remove sets, add or remove exercises, and reshape your week — all of it persists to your plan.
-- **📷 Log a meal from a photo** — snap your plate and the foods and macros are estimated for you, as an editable draft you confirm rather than a silent auto-log (portion size from a flat photo is the least reliable part, so low-confidence items start unticked). Requires your own OpenAI key: the photo goes straight from your device to OpenAI, never through this site's server, and is never stored — only the numbers you accept are saved.
+- **📷 Log a meal from a photo** — snap your plate and the foods and macros are estimated for you, as an editable draft you confirm rather than a silent auto-log (portion size from a flat photo is the least reliable part, so low-confidence items start unticked). Requires your own OpenAI key: the photo goes directly to OpenAI. Tempo saves the entries you accept and discards the photo locally. See Data & privacy for provider retention.
 - **🍽️ Preference-based meal plans** — sex-aware calorie & macro targets (Mifflin-St Jeor + activity, with safe-calorie and essential-fat floors), then **generates each meal from a tagged food database filtered to your diet, preferred proteins/carbs, and allergens** — scaling portions to hit your macros (no LLM, no network). Schedules meal times around your sleep/wake and tracks water.
 - **🔄 Adaptive** — recalibrates your calorie target from your weight trend, flags when you've hit your goal, and can request an optional AI coach review of recent diet, workout, and weight trends. The review shows exactly what would change and lets you accept each item individually: calorie/macro targets (which regenerate your meals) and exercise swaps. Load and rep advice stays advisory — the deterministic progression engine owns those, since it reads your actual logged sets.
 - **📊 Progress tracking** — weight/waist log, trend chart, moving average, and an ETA to your target.
@@ -19,7 +19,7 @@ Tempo is a mobile-first **PWA** with **no frameworks and no accounts**. Core tra
 
 ## Tech stack
 
-- **Vanilla JavaScript** (ES modules), HTML, and CSS — **no build step, no dependencies, no npm install**.
+- **Vanilla JavaScript** (ES modules), HTML, and CSS — **no compilation or npm install**.
 - Optional AI features call OpenAI directly from your browser.
 - State persisted to `localStorage` with JSON export/import.
 - Client-side routing via the History API (clean `/workout`-style URLs).
@@ -28,16 +28,21 @@ Tempo is a mobile-first **PWA** with **no frameworks and no accounts**. Core tra
 
 ## Getting started
 
+Local deployment requires **patched Python 3.14 (3.14.10+)**, **patched Node.js LTS (22.23.5+, 24.22.3+, or 26.13.1+ on those release lines)**, and a **USDA FoodData Central API key**. The local server uses Node.js to run the same food-search function as the hosted app. Request your key from the [USDA API key signup page](https://fdc.nal.usda.gov/api-key-signup/).
+
+In Bash or Zsh, run these commands and paste your key at the hidden prompt:
+
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/bezsystemsllc/workout-plan.git
 cd workout-plan
-python3 serve.py 8753
-# open http://localhost:8753
+printf 'USDA FoodData Central API key: '
+read -rs USDA_FOODDATA_API_KEY
+printf '\n'
+export USDA_FOODDATA_API_KEY
+python3.14 serve.py 8753
 ```
 
-`serve.py` is a tiny stdlib-only dev server that adds no-cache headers and an SPA fallback so deep links like `/workout` work on refresh. Any static server works, but with plain `python3 -m http.server` refreshing a deep link will 404.
-
-There is nothing to build or install.
+Open [Tempo on localhost](http://localhost:8753). The server checks that the key is present at startup and uses it for ingredient lookups at `/api/usda-foods`. The server binds to loopback and serves only listed browser assets. Keep secrets and exported backups outside the checkout. Local food search allows four simultaneous lookups and 30 uncached requests per minute. The OpenAI key in Tempo’s settings is separate and optional.
 
 ## Install (PWA)
 
@@ -104,17 +109,24 @@ Once installed it launches full-screen and works offline — the app shell and y
 
 ## Deployment
 
-The app is still served as static files. The included [`netlify.toml`](netlify.toml) and [`_headers`](_headers) configure the function directory, strict CSP, and the `/* → /index.html` redirect that makes clean URLs work in production. Deploy by connecting the repo to Netlify.
+The build copies the browser asset allowlist into a dedicated publish directory. The included [`netlify.toml`](netlify.toml) and [`_headers`](_headers) configure the function directory, strict CSP, and the `/* → /index.html` redirect that makes clean URLs work in production. Deploy by connecting the repo to Netlify.
 
 Netlify settings:
 
-- Build command: leave blank
-- Publish directory: `.`
+- Use the build command in `netlify.toml` to stage the public assets.
+- Publish directory: `dist`
+
 Set up AI features by saving your own OpenAI key under **Settings → AI coach key**. Workout setup, progress photos, meal analysis, and coach reviews use `gpt-6-luna`.
 
 To enable automatic USDA ingredient lookup when users select **Suggest weekly meal plan** in **Settings → Food → Build with AI**, set `USDA_FOODDATA_API_KEY` in Netlify’s Functions scope and redeploy. The function queries [USDA FoodData Central](https://fdc.nal.usda.gov/api-guide/) for food names and nutrient values per 100 g. When a user describes their preferences, Tempo looks up to four compatible ingredients it already knows how to plan in grams. The user can select an exact USDA entry before previewing the seven-day plan. Tempo calculates portions and totals using those entries, and uses its built-in estimates for other ingredients.
 
+Hosted USDA searches and owner-funded coach reviews require a shared Redis database supporting the Upstash REST API. Set `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` and a long random `RATE_LIMIT_SALT` as server-only function variables on every instance. Use a database dedicated to this deployment and a non-evicting configuration. The functions return 503 when they cannot reserve quota. Browser-funded AI and the Python local server work independently of Redis.
+
+The coach defaults to five requests per client per 15 minutes, 20 per client per UTC day and 100 per deployment per UTC day. Keep the server-side `OPENAI_API_KEY` unset for user-funded AI only. USDA allows 30 uncached searches per client per minute and 800 per deployment per clock hour. See `netlify.env.example` for tunable limits. The build selects Node 24 and checks its security patch level. Confirm the managed function runtime in the host after deployment.
+
 ## Data & privacy
+
+Personal OpenAI keys stay in memory until the tab reloads or closes unless you select **Remember key on this device**. Previously saved keys move into memory when this version first opens. Reloading or closing that tab clears them. Backups exclude API keys. AI requests set `store: false`. Provider safety and abuse-monitoring retention depends on the OpenAI project’s data controls. [OpenAI data controls](https://developers.openai.com/api/docs/guides/your-data)
 
 Core data is stored in your browser's `localStorage` and there are no accounts or analytics. The AI coach is opt-in per review: when you tap **Analyze progress**, your browser sends a compact snapshot directly to OpenAI using your key. Use **Progress → Backup** to export/import a JSON snapshot (recommended before clearing browser data).
 

@@ -577,26 +577,40 @@ export function importJSON(text) {
   monolithicFallbackActive = false;
 }
 
-// The user's own OpenAI key is deliberately NOT part of the managed state:
-// readAll()/exportJSON() never see it, so a backup file can be shared without
-// leaking it. It stays in this browser profile on this device.
-const API_KEY_STORAGE = `${KEY}:openai-key`;
+// Credentials stay outside backup state. Old installs move their saved key
+// into this tab once. Only an explicit opt-in writes the new persistent slot.
+const LEGACY_KEY_STORAGE = `${KEY}:openai-key`;
+const REMEMBERED_KEY = `${KEY}:remembered-openai-key`;
+let tabKey = "";
+try {
+  if (typeof window !== "undefined") tabKey = localStorage.getItem(LEGACY_KEY_STORAGE) || "";
+  if (tabKey) localStorage.removeItem(LEGACY_KEY_STORAGE);
+} catch { /* A private browsing context can still use an in-memory key. */ }
 
 export function loadApiKey() {
+  if (tabKey) return tabKey;
   try {
-    return localStorage.getItem(API_KEY_STORAGE) || "";
+    return localStorage.getItem(REMEMBERED_KEY) || "";
   } catch {
     return "";
   }
 }
 
-export function saveApiKey(value) {
+export function saveApiKey(value, remember = false) {
   const key = String(value || "").trim();
+  tabKey = key;
   try {
-    if (key) localStorage.setItem(API_KEY_STORAGE, key);
-    else localStorage.removeItem(API_KEY_STORAGE);
+    if (key && remember) {
+      localStorage.setItem(REMEMBERED_KEY, key);
+      tabKey = "";
+    } else {
+      localStorage.removeItem(REMEMBERED_KEY);
+    }
+    localStorage.removeItem(LEGACY_KEY_STORAGE);
+    return true;
   } catch (e) {
     reportWriteFailure(e);
+    return false;
   }
 }
 
@@ -606,7 +620,7 @@ export function clearStorage() {
   monolithicFallbackActive = false;
   localStorage.removeItem(KEY);
   localStorage.removeItem(`${KEY}:recovery`);
-  localStorage.removeItem(API_KEY_STORAGE);
+  saveApiKey("");
   for (const key of Object.values(SECTION_KEYS)) {
     localStorage.removeItem(key);
     localStorage.removeItem(`${key}:recovery`);

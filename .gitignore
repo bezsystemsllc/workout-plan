@@ -22,3 +22,6 @@ netlify.env
 *.backup.json
 tempo-*.json
 cut-to-abs-*.json
+
+# Generated Netlify publish directory
+/dist/

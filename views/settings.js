@@ -132,7 +132,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     return `
       <div class="seg" role="group" aria-label="${section === "workout" ? "Workout" : "Meal"} setup method">
         ${[["presets", "Use presets"], ["ai", "Build with AI"]].map(([mode, label]) => `
-          <button type="button" data-setup="${section}" data-mode="${mode}" class="${selected === mode ? "active" : ""}" aria-pressed="${selected === mode}">${label}</button>
+          <button type="button" data-setup="${section}" data-mode="${mode}" aria-pressed="${selected === mode}">${label}</button>
         `).join("")}
       </div>`;
   }
@@ -143,7 +143,8 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         <p class="hint">Enter your own OpenAI key to use this optional AI feature.</p>
         <label for="${section}-setup-key">OpenAI API key</label>
         <input id="${section}-setup-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…" />
-        <button type="submit" class="primary">Save key and continue</button>
+        <label><input type="checkbox" data-remember-key /> Remember key on this device</label>
+        <button type="submit" class="primary">Use key and continue</button>
       </form>`;
   }
 
@@ -171,7 +172,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
 
         <h3>Strength days / week</h3>
         <div class="seg">
-          ${[2,3,4,5,6].map(d => `<button class="${draftPrefs.daysPerWeek === d ? "active" : ""}" data-days="${d}">${d}</button>`).join("")}
+          ${[2,3,4,5,6].map(d => `<button aria-pressed="${draftPrefs.daysPerWeek === d}" data-days="${d}">${d}</button>`).join("")}
         </div>
 
         <div class="training-combinations">
@@ -187,26 +188,29 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         <p class="hint" id="training-type-hint">${TRAINING_TYPES[draftPrefs.trainingType].description} Your equipment selections are kept when you switch types.</p>
         </div>
 
-        <h3>Experience</h3>
-        <div class="opt-stack">
-          ${Object.entries(EXPERIENCE).map(([k, label]) => `<button class="opt ${draftPrefs.experience === k ? "selected" : ""}" data-exp="${k}"><b>${label}</b></button>`).join("")}
+        <h3 id="experience-heading">Experience</h3>
+        <div class="opt-stack" role="group" aria-labelledby="experience-heading">
+          ${Object.entries(EXPERIENCE).map(([k, label]) => `
+            <button type="button" class="opt" data-exp="${k}" aria-pressed="${draftPrefs.experience === k}">
+              <b>${label}</b>
+            </button>`).join("")}
         </div>
 
         <h3>Equipment</h3>
         <div class="seg" role="group" aria-label="Equipment options">
-          <button type="button" data-equipment-panel="presets" class="${equipmentPanel === "presets" ? "active" : ""}" aria-pressed="${equipmentPanel === "presets"}">Presets</button>
-          <button type="button" data-equipment-panel="custom" class="${equipmentPanel === "custom" ? "active" : ""}" aria-pressed="${equipmentPanel === "custom"}">Custom</button>
+          <button type="button" data-equipment-panel="presets" aria-pressed="${equipmentPanel === "presets"}">Presets</button>
+          <button type="button" data-equipment-panel="custom" aria-pressed="${equipmentPanel === "custom"}">Custom</button>
         </div>
         ${equipmentPanel === "presets" ? `
           <p class="hint">${activePreset ? "Pick an equipment preset." : "Your custom equipment is active. Choose a preset to switch."}</p>
           <div class="training-buttons">
-            ${Object.entries(EQUIPMENT_PRESETS).map(([k, v]) => `<button type="button" class="${activePreset === k ? "primary" : ""}" data-preset="${k}" aria-pressed="${activePreset === k}">${v.label}</button>`).join("")}
+            ${Object.entries(EQUIPMENT_PRESETS).map(([k, v]) => `<button type="button" data-preset="${k}" aria-pressed="${activePreset === k}">${v.label}</button>`).join("")}
           </div>` : `
           <p class="hint">Select the equipment you want to use. Clear all selections for bodyweight only.</p>
           <div class="chips training-buttons">
             ${Object.entries(EQUIPMENT).filter(([k]) => k !== "bodyweight").map(([k, label]) => {
               const selected = draftPrefs.equipment.includes(k);
-              return `<button type="button" class="chip ${selected ? "on" : ""}" data-equip="${k}" aria-pressed="${selected}">${label}</button>`;
+              return `<button type="button" class="chip" data-equip="${k}" aria-pressed="${selected}">${label}</button>`;
             }).join("")}
           </div>`}
         ${settings.plan && equipmentChanged() ? `<p class="hint">Saving rebuilds your workouts and resets exercise swaps. Your weekly layout and workout logs are kept.</p>` : ""}
@@ -255,10 +259,11 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     return `
       <section class="card" id="ai-coach-key">
         <h2>AI coach key</h2>
-        <p class="hint">Use your own OpenAI key to enable workout setup, photo comparisons, meal analysis, and coach reviews with <b>${DEFAULT_OPENAI_MODEL}</b>. Tempo stores the key in this browser and sends requests directly to OpenAI.</p>
+        <p class="hint">Use your own OpenAI key to enable workout setup, photo comparisons, meal analysis, and coach reviews with <b>${DEFAULT_OPENAI_MODEL}</b>. Requests go directly to OpenAI. By default the key clears when you reload or close this tab.</p>
         ${saved ? `<p class="hint" style="margin-top:0">Saved key: <b>sk-…${esc(saved.slice(-4))}</b></p>` : ""}
         <label for="f-api-key">OpenAI API key</label>
         <input id="f-api-key" type="password" autocomplete="off" spellcheck="false" placeholder="${saved ? "Enter a new key to replace" : "sk-…"}" />
+        <label><input type="checkbox" data-remember-key /> Remember key on this device</label>
         <p class="hint" style="margin-top:8px">Create a project-scoped key with a spending limit at platform.openai.com — don't paste an org-wide key.</p>
         <div class="grid-2" style="margin-top:6px">
           <button class="primary" id="f-api-save">${saved ? "Replace key" : "Save key"}</button>
@@ -276,7 +281,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         <p class="hint">Pick a color palette. Applies instantly on this device.</p>
         <div class="theme-picker-grid">
           ${THEMES.map(t => `
-            <button type="button" class="theme-card ${active === t.id ? "active" : ""}" data-set-theme="${t.id}" aria-pressed="${active === t.id}">
+            <button type="button" class="theme-card" data-set-theme="${t.id}" aria-pressed="${active === t.id}">
               <span class="theme-swatch" data-theme="${t.id}" aria-hidden="true"></span>
               <span class="theme-card-text">
                 <b>${t.name}</b>
@@ -312,22 +317,22 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
 
         <h3>Diet</h3>
         <div class="grid-2">
-          ${Object.entries(DIETS).map(([k, label]) => `<button class="${draftFood.diet === k ? "primary" : ""}" data-diet="${k}">${label}</button>`).join("")}
+          ${Object.entries(DIETS).map(([k, label]) => `<button aria-pressed="${draftFood.diet === k}" data-diet="${k}">${label}</button>`).join("")}
         </div>
 
         <h3>Protein sources you like</h3>
         <div class="chips">
-          ${proteins.map((k) => `<button class="chip ${draftFood.proteins.includes(k) ? "on" : ""}" data-protein="${k}">${PROTEIN_GROUPS[k]}</button>`).join("")}
+          ${proteins.map((k) => `<button class="chip" aria-pressed="${draftFood.proteins.includes(k)}" data-protein="${k}">${PROTEIN_GROUPS[k]}</button>`).join("")}
         </div>
 
         <h3>Carb sources you like</h3>
         <div class="chips">
-          ${Object.entries(CARB_GROUPS).map(([k, label]) => `<button class="chip ${draftFood.carbs.includes(k) ? "on" : ""}" data-carb="${k}">${label}</button>`).join("")}
+          ${Object.entries(CARB_GROUPS).map(([k, label]) => `<button class="chip" aria-pressed="${draftFood.carbs.includes(k)}" data-carb="${k}">${label}</button>`).join("")}
         </div>
 
         <h3>Avoid</h3>
         <div class="chips">
-          ${Object.entries(ALLERGENS).map(([k, label]) => `<button class="chip ${draftFood.avoid.includes(k) ? "on" : ""}" data-avoid="${k}">${label}</button>`).join("")}
+          ${Object.entries(ALLERGENS).map(([k, label]) => `<button class="chip" aria-pressed="${draftFood.avoid.includes(k)}" data-avoid="${k}">${label}</button>`).join("")}
         </div>
         ` : ""}
       </section>
@@ -351,7 +356,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
     return [
       { title: "Goal", html: `<section class="card"><h2>What’s your workout goal?</h2>
         <div class="opt-stack">${Object.entries(goals).map(([id, label]) =>
-          `<button class="opt ${draft.goal === id ? "selected" : ""}" data-goal="${id}" aria-pressed="${draft.goal === id}">${esc(label)}</button>`).join("")}</div></section>` },
+          `<button class="opt" data-goal="${id}" aria-pressed="${draft.goal === id}">${esc(label)}</button>`).join("")}</div></section>` },
       { title: "Workout", html: `<section class="card"><h2>Your workout week</h2>
         <label for="setup-days">Workout days per week</label>
         <select id="setup-days">${[2,3,4,5,6].map(n => `<option ${draftPrefs.daysPerWeek === n ? "selected" : ""}>${n}</option>`).join("")}</select>
@@ -377,8 +382,8 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
           <p class="hint">These details help estimate your daily nutrition targets.</p>
           <h3>Units</h3>
           <div class="grid-2">
-            <button class="${draftUnits === "imperial" ? "primary" : ""}" data-units="imperial">Imperial (lb, ft/in)</button>
-            <button class="${draftUnits === "metric" ? "primary" : ""}" data-units="metric">Metric (kg, cm)</button>
+            <button aria-pressed="${draftUnits === "imperial"}" data-units="imperial">Imperial (lb, ft/in)</button>
+            <button aria-pressed="${draftUnits === "metric"}" data-units="metric">Metric (kg, cm)</button>
           </div>
           <h3>Body stats</h3>
           <div class="grid-2">
@@ -401,8 +406,8 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
           <h3>Sex</h3>
           <p class="hint" style="margin-top:0">Used to estimate daily calorie needs.</p>
           <div class="grid-2">
-            <button class="${draft.sex === "male" ? "primary" : ""}" data-sex="male">Male</button>
-            <button class="${draft.sex === "female" ? "primary" : ""}" data-sex="female">Female</button>
+            <button aria-pressed="${draft.sex === "male"}" data-sex="male">Male</button>
+            <button aria-pressed="${draft.sex === "female"}" data-sex="female">Female</button>
           </div>
         </section>` },
 
@@ -412,7 +417,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
           <h3>Activity level</h3>
           <div class="opt-stack">
             ${Object.entries(ACTIVITY).map(([k, v]) => `
-              <button class="opt ${draft.activity === k ? "selected" : ""}" data-activity="${k}">
+              <button class="opt" aria-pressed="${draft.activity === k}" data-activity="${k}">
                 <b>${v.label}</b><span class="opt-desc">${v.desc}</span>
               </button>`).join("")}
           </div>
@@ -429,7 +434,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
           <p class="hint">Sets your calorie target and training rep ranges.</p>
           <div class="opt-stack">
             ${Object.entries(GOAL).map(([k, v]) => `
-              <button class="opt ${draft.goal === k ? "selected" : ""}" data-goal="${k}">
+              <button class="opt" aria-pressed="${draft.goal === k}" data-goal="${k}">
                 <b>${v.label}</b><span class="opt-desc">${goalDesc(k)}</span>
               </button>`).join("")}
           </div>
@@ -501,7 +506,7 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
       head.innerHTML = `
         <span class="wiz-step-label">Step ${step + 1} of ${steps.length} · ${steps[step].title}</span>
         <div class="wiz-dots">
-          ${steps.map((s, i) => `<button class="wiz-dot ${i === step ? "active" : ""}" data-goto="${i}" aria-label="Go to ${s.title}" ${isOnboarding && i > furthestStep ? "disabled" : ""}></button>`).join("")}
+          ${steps.map((s, i) => `<button class="wiz-dot ${i === step ? "active" : ""}" aria-current="${i === step ? "step" : "false"}" data-goto="${i}" aria-label="Go to ${s.title}" ${isOnboarding && i > furthestStep ? "disabled" : ""}></button>`).join("")}
         </div>`;
       nav.innerHTML = `
         <button class="ghost" id="wiz-back" ${step === 0 ? "disabled" : ""}>← Back</button>
@@ -839,10 +844,10 @@ export function renderSettings(root, { onboarding = false, requestedTab = "today
         await notify("That doesn't look like an OpenAI key — it should start with \"sk-\".", { title: "Check the key" });
         return;
       }
-      saveApiKey(value);
-      if (loadApiKey() !== value) return;
+      const remember = input.closest("form, section").querySelector("[data-remember-key]").checked;
+      const stored = saveApiKey(value, remember);
       input.value = "";
-      toast("OpenAI key saved to this browser");
+      toast(remember && stored ? "Key remembered on this device" : "Key ready for this tab");
       rerender();
       if (nextField) root.querySelector(nextField)?.focus();
     }

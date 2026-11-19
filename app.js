@@ -45,7 +45,10 @@ function route() {
   document.body.classList.toggle("onboarding", needsOnboarding);
   document.getElementById("view-title").textContent = needsOnboarding ? "Welcome" : def.title;
   for (const el of document.querySelectorAll(".tab")) {
-    el.classList.toggle("active", el.dataset.tab === tab);
+    const current = el.dataset.tab === tab;
+    el.classList.toggle("active", current);
+    if (current) el.setAttribute("aria-current", "page");
+    else el.removeAttribute("aria-current");
   }
 
   const renderContent = () => {

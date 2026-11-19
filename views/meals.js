@@ -241,7 +241,6 @@ export function renderMeals(root) {
       for (const button of root.querySelectorAll("[data-log-mode]")) {
         const selected = button.dataset.logMode === logMode;
         button.setAttribute("aria-pressed", String(selected));
-        button.classList.toggle("primary", selected);
       }
     }
     root.querySelector("#log-food").addEventListener("click", () => {

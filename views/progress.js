@@ -57,8 +57,8 @@ export function renderProgress(root, { section = "" } = {}) {
 
     root.innerHTML = `
       <div class="seg" style="margin-bottom:14px">
-        <button class="${activeTab === "body" ? "active" : ""}" id="tab-body">⚖️ Body & Weight</button>
-        <button class="${activeTab === "strength" ? "active" : ""}" id="tab-strength">🏋️ Strength & PRs</button>
+        <button aria-pressed="${activeTab === "body"}" id="tab-body">⚖️ Body & Weight</button>
+        <button aria-pressed="${activeTab === "strength"}" id="tab-strength">🏋️ Strength & PRs</button>
       </div>
 
       ${activeTab === "body" ? renderBodySection(entries, stats, visibleHistory, hiddenHistoryCount, planProgress) : renderStrengthSection(allWorkouts, allPRs, exerciseList)}
@@ -101,11 +101,11 @@ export function renderProgress(root, { section = "" } = {}) {
     return `
       <section class="card">
         <h2>Log entry</h2>
-        <div class="grid-2">
-          <div><label>Date</label><input id="p-date" type="date" value="${todayISO()}" max="${todayISO()}" /></div>
-          <div><label>Weight (${wUnit})</label><input id="p-w" type="number" inputmode="decimal" step="0.1" /></div>
-          <div><label>Waist (${waistUnit})</label><input id="p-waist" type="number" inputmode="decimal" step="0.1" /></div>
-          <div style="display:flex;align-items:flex-end"><button class="primary" id="p-save" style="width:100%">Save</button></div>
+        <div class="grid-2 progress-entry">
+          <div><label for="p-date">Date</label><input id="p-date" type="date" value="${todayISO()}" max="${todayISO()}" /></div>
+          <div><label for="p-w">Weight (${wUnit})</label><input id="p-w" type="number" inputmode="decimal" step="0.1" /></div>
+          <div><label for="p-waist">Waist (${waistUnit})</label><input id="p-waist" type="number" inputmode="decimal" step="0.1" /></div>
+          <button class="primary" id="p-save">Save</button>
         </div>
         <div class="hint">Weigh in same time each morning, post-bathroom, pre-food.</div>
       </section>

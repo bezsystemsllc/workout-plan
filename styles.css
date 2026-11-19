@@ -347,8 +347,8 @@ body.onboarding { padding-bottom: env(safe-area-inset-bottom); }
 }
 .opt-stack .opt b { font-size: 14px; }
 .opt-stack .opt .opt-desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
-.opt-stack .opt.selected, .theme-card.active { box-shadow: inset 0 0 0 1px var(--accent); }
-.opt-stack .opt.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface-2)); color: var(--text); }
+
+
 
 .suggestion { border-left: 4px solid var(--accent); }
 .suggestion.suggestion-celebrate { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
@@ -843,6 +843,8 @@ body.modal-open { overflow: hidden; }
 .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .grid-2 > * { min-width: 0; }
+.progress-entry { align-items: end; }
+.progress-entry :is(input, button) { height: 3.25rem; }
 
 button, .btn, .tab, select { touch-action: manipulation; }
 
@@ -894,10 +896,8 @@ select {
 /* Columns follow the number of buttons (Progress has 2, days-per-week has 5). */
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; margin-top: 6px; }
 .seg button { min-height: 44px; padding: 8px; }
-.seg button.active { background: var(--accent-gradient); color: var(--on-accent); border-color: transparent; font-weight: 700; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .chips .chip { min-height: 40px; padding: 8px 12px; font-size: 13px; }
-.chips .chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .training-buttons {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1161,6 +1161,10 @@ select {
   animation: fadeIn 180ms ease;
 }
 
+@media (max-width: 520px) {
+  .plate-controls > .grid-2 { grid-template-columns: 1fr; }
+}
+
 .plate-modal-panel {
   width: 100%;
   max-width: 460px;
@@ -1394,10 +1398,6 @@ select {
   font-weight: 400;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
-.theme-card.active {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
 .theme-card-text { display: flex; flex-direction: column; min-width: 0; }
 .theme-card-text b { font-size: 13px; }
 .theme-swatch {
@@ -1408,6 +1408,32 @@ select {
   border: 2px solid color-mix(in srgb, var(--text) 18%, transparent);
   flex-shrink: 0;
 }
+
+/* Pressed choices share a checkmark across single- and multi-select groups. */
+button[aria-pressed] {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+button[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+button[aria-pressed="true"] :is(.opt-desc, .muted) { color: inherit; }
+button[aria-pressed]::after {
+  content: "";
+  width: 0.45em;
+  height: 0.8em;
+  border: solid currentColor;
+  border-width: 0 0.16em 0.16em 0;
+  transform: rotate(45deg);
+  flex: none;
+  visibility: hidden;
+}
+button[aria-pressed="true"]::after { visibility: visible; }
+.opt-stack button[aria-pressed] { position: relative; padding-inline-end: 2.5rem; }
+.opt-stack button[aria-pressed]::after { position: absolute; inset-inline-end: 1rem; top: calc(50% - 0.45em); }
+.theme-card::after { margin-inline-start: auto; }
 
 /* ── Premium Quick Water Tracker ── */
 .water-tracker {
